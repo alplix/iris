@@ -1,0 +1,192 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.26'
+  NODE_VERSION: '20'
+  WAILS_VERSION: 'v2.15.0'
+  APP_ID: dev.alplix.iris
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build windows/amd64
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install mingw and nsis
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64 nsis
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build Iris compute client (irisd)
+        run: |
+          mkdir -p build/bin
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd.exe ./cmd/irisd
+
+      - name: Build (NSIS installer)
+        run: wails build -platform windows/amd64 -nsis -webview2 download
+
+      - name: Stage portable zip
+        working-directory: build/bin
+        run: |
+          mv iris.exe iris-windows-amd64.exe
+          mv irisd.exe irisd-windows-amd64.exe
+          zip -r ../../iris-windows-amd64.zip iris-windows-amd64.exe irisd-windows-amd64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-windows-amd64
+          if-no-files-found: error
+          path: |
+            iris-windows-amd64.zip
+            build/bin/iris-amd64-installer.exe
+
+  build-linux:
+    name: Build linux ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build Iris compute client (irisd)
+        run: |
+          mkdir -p build/bin
+          GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
+
+      - name: Build
+        run: wails build -platform linux/${{ matrix.arch }} -clean
+
+      - name: Stage archive
+        working-directory: build/bin
+        run: |
+          mv iris iris-linux-${{ matrix.arch }}
+          mv irisd irisd-linux-${{ matrix.arch }}
+          tar -czf ../../iris-linux-${{ matrix.arch }}.tar.gz iris-linux-${{ matrix.arch }} irisd-linux-${{ matrix.arch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: iris-linux-${{ matrix.arch }}.tar.gz
+
+  build-darwin:
+    name: Build darwin ${{ matrix.arch }}
+    runs-on: macos-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
+
+      - name: Build Iris compute client (irisd)
+        run: |
+          mkdir -p build/bin
+          GOOS=darwin GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
+
+      - name: Build
+        run: wails build -platform darwin/${{ matrix.arch }} -clean
+
+      - name: Embed irisd into app bundle
+        run: |
+          APP="$(find build/bin -maxdepth 2 -name '*.app' | head -1)"
+          if [ -z "$APP" ]; then echo "No .app bundle produced"; exit 1; fi
+          mkdir -p "$APP/Contents/Resources"
+          cp build/bin/irisd "$APP/Contents/Resources/irisd"
+
+      - name: Stage archive
+        working-directory: build/bin
+        run: |
+          APP="$(find . -maxdepth 2 -name '*.app' | head -1)"
+          if [ -z "$APP" ]; then echo "No .app bundle produced"; exit 1; fi
+          ditto -c -k --keepParent "$APP" ../../iris-darwin-${{ matrix.arch }}.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-darwin-${{ matrix.arch }}
+          if-no-files-found: error
+          path: iris-darwin-${{ matrix.arch }}.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-windows, build-linux, build-darwin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+
+      - name: Generate checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS.txt
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          generate_release_notes: true
