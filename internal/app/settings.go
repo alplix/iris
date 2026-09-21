@@ -11,6 +11,9 @@ import (
 type Settings struct {
 	// Lang is the UI language code; empty until the user has chosen one.
 	Lang string `json:"lang,omitempty"`
+	// ClientStopped is set when the user stopped the local client from the
+	// manager, so that the manager does not start it again by itself.
+	ClientStopped bool `json:"clientStopped,omitempty"`
 }
 
 func settingsPath() string { return filepath.Join(ConfigDir(), "settings.json") }

@@ -109,7 +109,9 @@ listen on `127.0.0.1` only.
 1. Launch **Iris** — the manager auto-detects the local client, or you can connect to remote hosts.
 2. For remote clients, find the RPC password in `gui_rpc_auth.cfg` inside the client data directory.
 3. Open **Servers → Add Server** and enter host, port (default `31418`) and password.
-4. First launch without any servers creates a **Demo Server** with simulated data to explore safely.
+4. Iris starts clean, like the BOINC manager: on first launch it finds the bundled `irisd`, adds it as
+   **Local Iris** and starts it for you (unless you stopped it yourself). Nothing else is added.
+   Developers can get a simulated server with `IRIS_DEMO=1`.
 
 Configuration is stored in the OS config directory (`~/.config/iris` on Linux,
 `%APPDATA%\iris` on Windows, `~/Library/Application Support/iris` on macOS). Host passwords live

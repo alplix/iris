@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -50,17 +51,40 @@ type hostWatch struct {
 
 var Mgr *Manager
 
-func NewManager() *Manager {
+func NewManager() *Manager { return newManagerWith(LoadStore()) }
+
+// newManagerWith builds a manager around store. The manager starts empty, like
+// the BOINC manager: hosts come from the local client that is detected at
+// startup and from the ones the user adds. Demo data is opt-in (IRIS_DEMO=1);
+// demo hosts that earlier versions created on their own are dropped.
+func newManagerWith(store *Store) *Manager {
 	m := &Manager{
-		Store: LoadStore(),
+		Store: store,
 		mocks: map[string]*Mock{},
 		snaps: map[string]*Snapshot{},
 		hist:  map[string][]HistPoint{},
 		watch: map[string]*hostWatch{},
 		stop:  make(chan struct{}),
 	}
-	if len(m.Store.List()) == 0 {
+	wantDemo := os.Getenv("IRIS_DEMO") == "1"
+	changed := false
+	hasDemo := false
+	for _, h := range m.Store.List() {
+		if !h.Demo {
+			continue
+		}
+		if wantDemo {
+			hasDemo = true
+		} else {
+			m.Store.Remove(h.ID)
+			changed = true
+		}
+	}
+	if wantDemo && !hasDemo {
 		m.Store.Upsert(HostCfg{Name: "Demo Server", Host: "localhost", Port: product.DefaultGUIRPCPort, Demo: true})
+		changed = true
+	}
+	if changed {
 		_ = m.Store.Save()
 	}
 	Mgr = m
