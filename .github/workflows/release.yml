@@ -63,6 +63,8 @@ jobs:
           mv iris.exe iris-windows-${{ matrix.arch }}.exe
           mv irisd.exe irisd-windows-${{ matrix.arch }}.exe
           zip -r ../../iris-windows-${{ matrix.arch }}.zip iris-windows-${{ matrix.arch }}.exe irisd-windows-${{ matrix.arch }}.exe
+          # Flat path, so the installer is not nested in a build/bin directory in the release.
+          mv iris-${{ matrix.arch }}-installer.exe ../../
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +73,7 @@ jobs:
           if-no-files-found: error
           path: |
             iris-windows-${{ matrix.arch }}.zip
-            build/bin/iris-${{ matrix.arch }}-installer.exe
+            iris-${{ matrix.arch }}-installer.exe
 
   build-linux:
     name: Build linux ${{ matrix.arch }}
@@ -196,7 +198,7 @@ jobs:
 
       - name: Generate checksums
         working-directory: dist
-        run: sha256sum * > SHA256SUMS.txt
+        run: find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort | xargs sha256sum > SHA256SUMS.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
