@@ -40,11 +40,21 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-npm-
 
+      # The manager package uses cgo (GTK/WebKit/appindicator), so vet and test
+      # need the headers as much as the final build does.
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+
       - name: Frontend build
         working-directory: frontend
         run: |
           npm install
           npm run build
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
       - name: Go vet
         run: go vet ./...
@@ -57,11 +67,6 @@ jobs:
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
-
-      - name: Install GTK dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
 
       - name: Wails build (linux/amd64 smoke test)
         run: wails build -platform linux/amd64 -clean
