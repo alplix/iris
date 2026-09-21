@@ -74,4 +74,4 @@ jobs:
 
       # The bindings are committed; the build above regenerates them.
       - name: Bindings are up to date
-        run: git diff --exit-code -- frontend/wailsjs
+        run: git -c core.fileMode=false diff --exit-code -- frontend/wailsjs

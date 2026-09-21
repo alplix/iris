@@ -107,13 +107,14 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build
+        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41
+
+      # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
         run: |
           mkdir -p build/bin
           GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
-
-      - name: Build
-        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41
 
       - name: Stage archive
         working-directory: build/bin
@@ -153,13 +154,14 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build
+        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings
+
+      # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
         run: |
           mkdir -p build/bin
           GOOS=darwin GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
-
-      - name: Build
-        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings
 
       - name: Embed irisd into app bundle
         run: |
