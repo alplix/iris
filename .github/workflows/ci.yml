@@ -56,11 +56,12 @@ jobs:
       - name: Check formatting
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
+      # Ubuntu 24.04 only ships webkit2gtk-4.1, which Wails selects with this tag.
       - name: Go vet
-        run: go vet ./...
+        run: go vet -tags webkit2_41 ./...
 
       - name: Go test
-        run: go test ./... -count=1
+        run: go test -tags webkit2_41 ./... -count=1
 
       - name: Build daemon (irisd)
         run: go build ./cmd/irisd
@@ -69,4 +70,8 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Wails build (linux/amd64 smoke test)
-        run: wails build -platform linux/amd64 -clean
+        run: wails build -platform linux/amd64 -clean -tags webkit2_41
+
+      # The bindings are committed; the build above regenerates them.
+      - name: Bindings are up to date
+        run: git diff --exit-code -- frontend/wailsjs

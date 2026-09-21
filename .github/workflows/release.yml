@@ -53,7 +53,9 @@ jobs:
           GOOS=windows GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd.exe ./cmd/irisd
 
       - name: Build (NSIS installer)
-        run: wails build -platform windows/${{ matrix.arch }} -nsis -webview2 download
+        # Bindings are committed (CI checks they are current); generating them
+        # would need the Linux GTK/WebKit headers on this runner.
+        run: wails build -platform windows/${{ matrix.arch }} -nsis -webview2 download -skipbindings
 
       - name: Stage portable zip
         working-directory: build/bin
@@ -111,7 +113,7 @@ jobs:
           GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
 
       - name: Build
-        run: wails build -platform linux/${{ matrix.arch }} -clean
+        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41
 
       - name: Stage archive
         working-directory: build/bin
@@ -157,7 +159,7 @@ jobs:
           GOOS=darwin GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
 
       - name: Build
-        run: wails build -platform darwin/${{ matrix.arch }} -clean
+        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings
 
       - name: Embed irisd into app bundle
         run: |

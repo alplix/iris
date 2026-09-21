@@ -108,6 +108,7 @@ required at runtime (bundled by the installer).
 ```
 wails dev        # live development build of the manager
 wails build      # production build of the manager for the current platform
+                 # (Linux with WebKitGTK 4.1: wails build -tags webkit2_41)
 go build ./cmd/irisd   # build just the compute client
 ```
 
