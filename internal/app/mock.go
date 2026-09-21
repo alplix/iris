@@ -185,7 +185,7 @@ func (m *Mock) buildStats(rnd *rand.Rand) {
 	for _, p := range m.projects {
 		projects = append(projects, boinc.DiskProject{
 			MasterURL: p.info.URL,
-			DiskUsage: boinc.Num(float64(800000000 + rnd.Intn(9000000000))),
+			DiskUsage: boinc.Num(float64(800000000 + rnd.Int63n(9000000000))),
 		})
 	}
 	m.disk = &boinc.DiskUsage{

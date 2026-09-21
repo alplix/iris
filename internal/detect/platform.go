@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
@@ -30,20 +31,11 @@ func getRAMWin() float64 {
 }
 
 func getRAMLinux() float64 {
-	out, err := exec.Command("cat", "/proc/meminfo").Output()
+	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return 0
 	}
-	for _, line := range strings.Split(string(out), "\n") {
-		if strings.HasPrefix(line, "MemTotal:") {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				v, _ := strconv.ParseFloat(fields[1], 64)
-				return v * 1024
-			}
-		}
-	}
-	return 0
+	return parseMemTotal(string(data))
 }
 
 func getRAMDarwin() float64 {
@@ -59,10 +51,8 @@ func getDiskUsage() (float64, float64) {
 	switch runtime.GOOS {
 	case "windows":
 		return getDiskWin()
-	case "linux":
-		return getDiskLinux("/")
-	case "darwin":
-		return getDiskLinux("/")
+	case "linux", "darwin", "freebsd", "openbsd", "netbsd":
+		return getDiskUnix("/")
 	}
 	return 0, 0
 }
@@ -80,22 +70,4 @@ func getDiskWin() (float64, float64) {
 		return total, free
 	}
 	return 0, 0
-}
-
-func getDiskLinux(path string) (float64, float64) {
-	out, err := exec.Command("df", "-B1", path).Output()
-	if err != nil {
-		return 0, 0
-	}
-	lines := strings.Split(string(out), "\n")
-	if len(lines) < 2 {
-		return 0, 0
-	}
-	fields := strings.Fields(lines[1])
-	if len(fields) < 4 {
-		return 0, 0
-	}
-	total, _ := strconv.ParseFloat(fields[1], 64)
-	free, _ := strconv.ParseFloat(fields[3], 64)
-	return total, free
 }

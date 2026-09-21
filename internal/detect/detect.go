@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type Specs struct {
@@ -34,7 +35,17 @@ func Detect() Specs {
 		MNbytes:   getRAM(),
 	}
 	s.Vendor, s.Model = getCPUInfo()
-	s.PFlops = estimateFLOPS(s.Ncpus, s.Model)
+	if flops, known := estimateFLOPS(s.Ncpus, s.Model); known {
+		s.PFlops = flops
+	} else {
+		// Unknown CPUs (single-board computers, RISC-V, POWER, ...) range from a
+		// fraction of a GFLOPS to hundreds. A guess would make a project hand out
+		// far more work than the machine can finish, so measure it.
+		s.PFlops = Benchmark(s.Ncpus, 400*time.Millisecond)
+	}
+	if rel := kernelRelease(); rel != "" && runtime.GOOS == "linux" {
+		s.OSVersion = rel + " " + runtime.GOARCH
+	}
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
 	if s.Vendor == "" {
@@ -46,7 +57,9 @@ func Detect() Specs {
 	return s
 }
 
-func estimateFLOPS(ncpus int, model string) float64 {
+// estimateFLOPS guesses the speed of a few well-known CPUs from their name;
+// known is false for anything else.
+func estimateFLOPS(ncpus int, model string) (flops float64, known bool) {
 	m := strings.ToLower(model)
 	var flopsPerCore float64
 	switch {
@@ -61,7 +74,7 @@ func estimateFLOPS(ncpus int, model string) float64 {
 	case strings.Contains(m, "14600") || strings.Contains(m, "13600") || strings.Contains(m, "7600x") || strings.Contains(m, "5600x"):
 		flopsPerCore = 14e9
 	default:
-		flopsPerCore = 10e9
+		return 0, false
 	}
-	return math.Round(float64(ncpus)*flopsPerCore/1e9) * 1e9
+	return math.Round(float64(ncpus)*flopsPerCore/1e9) * 1e9, true
 }

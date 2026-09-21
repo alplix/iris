@@ -75,3 +75,39 @@ jobs:
       # The bindings are committed; the build above regenerates them.
       - name: Bindings are up to date
         run: git -c core.fileMode=false diff --exit-code -- frontend/wailsjs
+
+  # irisd is pure Go: run its tests on the other architectures it ships for.
+  # 386 runs natively on the runner; the rest go through qemu-user.
+  cross-arch:
+    name: Tests on ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux/386,      goarch: "386" }
+          - { name: linux/armv7,    goarch: arm,     goarm: "7", qemu: qemu-arm }
+          - { name: linux/riscv64,  goarch: riscv64, qemu: qemu-riscv64 }
+          - { name: linux/ppc64le,  goarch: ppc64le, qemu: qemu-ppc64le }
+          - { name: linux/ppc64,    goarch: ppc64,   qemu: qemu-ppc64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install qemu-user
+        if: matrix.qemu
+        run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      - name: Go test
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+          EXEC: ${{ matrix.qemu }}
+        run: go test ${EXEC:+-exec "$EXEC"} -count=1 ./cmd/irisd ./internal/...
