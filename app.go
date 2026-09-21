@@ -43,25 +43,63 @@ func (a *App) startup(ctx context.Context) {
 	a.mgr.Start()
 }
 
+const localHostID = "local-iris"
+
+// autoConnectLocal makes the client that ships with Iris show up on its own,
+// like the BOINC manager does for its local client: it adds the host, starts
+// the client unless the user stopped it, and keeps the host's RPC password in
+// step with the one the client generates.
 func (a *App) autoConnectLocal() {
 	if !a.daemonI.Found || a.daemonI.DataDir == "" {
 		return
 	}
-	localID := "local-iris"
+	known := false
 	for _, h := range a.mgr.Store.List() {
-		if h.ID == localID || (h.Host == "localhost" && h.Port == product.DefaultGUIRPCPort) {
-			return
+		if h.ID == localHostID || (isLoopback(h.Host) && h.Port == product.DefaultGUIRPCPort) {
+			known = true
+			break
 		}
 	}
-	pass := local.ReadPassword(a.daemonI.DataDir)
-	a.mgr.Store.Upsert(app.HostCfg{
-		ID:       localID,
-		Name:     "Local Iris",
-		Host:     "localhost",
-		Port:     product.DefaultGUIRPCPort,
-		Password: pass,
-	})
-	_ = a.mgr.Store.Save()
+	if !known {
+		a.mgr.Store.Upsert(app.HostCfg{
+			ID:       localHostID,
+			Name:     "Local Iris",
+			Host:     "localhost",
+			Port:     product.DefaultGUIRPCPort,
+			Password: local.ReadPassword(a.daemonI.DataDir),
+		})
+		_ = a.mgr.Store.Save()
+	}
+	if a.daemon != nil && a.daemon.Status() != local.DaemonRunning && !app.LoadSettings().ClientStopped {
+		_ = local.StartDaemon(a.daemon, product.Version)
+	}
+	go a.syncLocalPassword()
+}
+
+func isLoopback(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+// syncLocalPassword copies the client's password into the local host. On a
+// first run the client creates it a few seconds after it starts.
+func (a *App) syncLocalPassword() {
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) {
+		if pass := local.ReadPassword(a.daemonI.DataDir); pass != "" {
+			h, ok := a.mgr.Store.Get(localHostID)
+			if !ok {
+				return // the user removed it
+			}
+			if h.Password != pass {
+				h.Password = pass
+				a.mgr.Store.Upsert(h)
+				_ = a.mgr.Store.Save()
+				a.mgr.Kick(localHostID)
+			}
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -206,13 +244,22 @@ func (a *App) StartDaemon() error {
 	if a.daemon == nil {
 		return nil
 	}
-	return local.StartDaemon(a.daemon, product.Version)
+	st := app.LoadSettings()
+	st.ClientStopped = false
+	_ = app.SaveSettings(st)
+	err := local.StartDaemon(a.daemon, product.Version)
+	go a.syncLocalPassword()
+	return err
 }
 
 func (a *App) StopDaemon() error {
 	if a.daemon == nil {
 		return nil
 	}
+	// Remember the choice: the manager must not restart what the user stopped.
+	st := app.LoadSettings()
+	st.ClientStopped = true
+	_ = app.SaveSettings(st)
 	return local.StopDaemon(a.daemon)
 }
 

@@ -31,8 +31,9 @@ func ConfigDir() string {
 	return filepath.Join(base, "iris")
 }
 
-func LoadStore() *Store {
-	p := filepath.Join(ConfigDir(), "hosts.json")
+func LoadStore() *Store { return LoadStoreFrom(filepath.Join(ConfigDir(), "hosts.json")) }
+
+func LoadStoreFrom(p string) *Store {
 	s := &Store{path: p}
 	data, err := os.ReadFile(p)
 	if err == nil {
@@ -89,7 +90,9 @@ func (s *Store) Upsert(h HostCfg) HostCfg {
 			}
 		}
 	}
-	h.ID = newID()
+	if h.ID == "" {
+		h.ID = newID()
+	}
 	s.hosts = append(s.hosts, h)
 	s.mu.Unlock()
 	return h

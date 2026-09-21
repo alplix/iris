@@ -31,7 +31,7 @@ func init() {
 		"dash.updateAll": "Update projects", "dash.tasksBtn": "Tasks",
 		"dash.recent": "Recent Activity", "dash.viewAll": "View all",
 		"dash.noServers":     "No servers yet",
-		"dash.noServersHint": "Add your Iris clients from the Servers tab. Try the demo server for an instant look.",
+		"dash.noServersHint": "Add your Iris clients from the Servers tab.",
 		"dash.addServer":     "Add Server",
 		"dash.noFeed":        "Nothing yet", "dash.noFeedHint": "Events will appear here once servers connect.",
 		"dash.actT": "Fleet activity (live)", "dash.actNow": "{n} tasks running now",
