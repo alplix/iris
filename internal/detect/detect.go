@@ -16,7 +16,6 @@ type Specs struct {
 	MNbytes   float64
 	DFree     float64
 	DTotal    float64
-	HostCPID  string
 	GPUs      []GPU
 }
 
@@ -38,7 +37,6 @@ func Detect() Specs {
 	s.PFlops = estimateFLOPS(s.Ncpus, s.Model)
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
-	s.HostCPID = getHostCPID()
 	if s.Vendor == "" {
 		s.Vendor = runtime.GOARCH
 	}

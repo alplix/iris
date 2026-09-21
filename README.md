@@ -93,6 +93,23 @@ Use the manager's **Projects → Attach** (project master URL + email/password).
 the attach request over GUI RPC; the client contacts the project scheduler, joins, downloads work
 and starts computing automatically.
 
+## Running next to BOINC
+
+Iris is built to coexist with a stock BOINC client on the same machine. Nothing is shared:
+
+| | Iris | BOINC |
+|---|---|---|
+| GUI RPC port | `31418` (`IRIS_GUI_RPC_PORT`; `31416` is refused) | `31416` |
+| Client data | `%ProgramData%\Iris` / `~/.local/share/iris` / `~/Library/Application Support/Iris` | `%ProgramData%\BOINC` / `/var/lib/boinc-client` / `/Library/Application Support/BOINC Data` |
+| Manager settings | `%APPDATA%\iris` / `~/.config/iris` | BOINC Manager's own |
+| Programs | `iris`, `irisd` | `boincmgr`, `boinc` |
+| Host identity on project servers | random ID stored in `host_cpid.txt`, per installation | BOINC's own |
+
+Each client registers as its own host on a project, and no hardware identifier is sent. The one
+thing the two cannot avoid sharing is the hardware: running both means both compute, so lower
+`max_ncpus_pct` in Iris' preferences (or set one client to *never*) if you want to split the CPU.
+The manager can also monitor BOINC clients — add them as a server on port `31416`.
+
 ## Building from source
 
 Prerequisites:

@@ -38,6 +38,10 @@ const detachedEnv = "IRIS_DETACHED"
 func guiRPCPort() int {
 	if v := os.Getenv("IRIS_GUI_RPC_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil && p > 0 && p < 65536 {
+			if p == product.BOINCGUIRPCPort {
+				fmt.Fprintf(os.Stderr, "Warning: port %d belongs to the BOINC client, using %d\n", p, product.DefaultGUIRPCPort)
+				return product.DefaultGUIRPCPort
+			}
 			return p
 		}
 		fmt.Fprintf(os.Stderr, "Warning: invalid IRIS_GUI_RPC_PORT, using %d\n", product.DefaultGUIRPCPort)
@@ -156,6 +160,7 @@ func runDaemon() {
 	}
 
 	st.HostInfo, st.OpenCLGpuProps = detectHostInfo()
+	st.HostInfo.HostCPID = loadOrCreateHostCPID(dataDir)
 
 	fmt.Println(banner())
 	fmt.Println()
@@ -187,7 +192,7 @@ func runDaemon() {
 	handler.xfers = xfers
 	srv := guirpc.NewServer(handler, password)
 	if err := srv.Start(guiRPCAddr); err != nil {
-		fatal("GUI RPC server failed: %v", err)
+		fatal("GUI RPC server failed: %v\n(port %d is in use by another program. Iris and BOINC use different ports and do not conflict; this is most likely a second Iris client. Set IRIS_GUI_RPC_PORT to use another port.)", err, guiRPCPort())
 	}
 
 	sig := make(chan os.Signal, 1)
@@ -245,7 +250,6 @@ func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 		MNbytes:   specs.MNbytes,
 		DFree:     specs.DFree,
 		DTotal:    specs.DTotal,
-		HostCPID:  specs.HostCPID,
 		CamVer:    product.Version,
 	}
 	var props []state.OpenCLProp
