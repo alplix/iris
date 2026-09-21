@@ -23,21 +23,34 @@ manage `irisd` clients and other BOINC-compatible clients alike.
 | **Transfers** | Live upload/download progress with retry & abort |
 | **Messages** | Severity-highlighted client log across all servers |
 | **Statistics** | Per-project credit-history charts (365 days), transfer history, per-project disk usage |
-| **Preferences** | Remote global-pref overrides, per-host & **fleet-wide** run/network modes, benchmarks |
+| **Preferences** | Global-pref overrides stored on the client (`max_ncpus_pct`/`max_ncpus` take effect immediately), per-host & **fleet-wide** run/network modes, CPU benchmark |
 | **Hardware** | OS, CPU, cores, FLOPS, RAM, disk, GPU list with VRAM per host |
 | **Notifications** | Desktop alerts for deadlines, task errors and offline hosts; tray menu with refresh/hide/show |
+| **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — picked from the system language, changeable in Settings |
 | **Local client** | Auto-detect (and start/stop) the bundled `irisd` client right from Settings |
 
 ## Platforms
 
 | OS | Architectures | Packaging |
 |---|---|---|
-| Windows 10/11 | amd64 | NSIS installer + portable zip (WebView2 automatic) |
+| Windows 10/11 | amd64, arm64 | NSIS installer + portable zip (WebView2 automatic) |
 | macOS | amd64, arm64 | `.app` bundle (zip) |
 | Linux | amd64, arm64 | portable `.tar.gz` (GTK3 + WebKitGTK 4.1 required) |
 
 Every release bundles `irisd` alongside the manager. The manager auto-detects it (bundled copy
 first, then the installed location) and registers it as **Local Iris**.
+
+## Install
+
+Download the latest release from the [Releases page](https://github.com/alplix/iris/releases).
+
+- **Windows** — run `iris-amd64-installer.exe` (or `iris-arm64-installer.exe` on ARM PCs). It installs
+  the manager **and** the `irisd` client to `Program Files\alplix\Iris`, adds Start-menu and desktop
+  shortcuts, offers to launch Iris when it finishes, and can be removed from *Apps & features*. The
+  installer speaks the same nine languages as the app and picks the one matching your Windows
+  language. Prefer no installer? Use the portable `iris-windows-*.zip`.
+- **macOS** — unzip `iris-darwin-*.zip` and move `Iris.app` to Applications.
+- **Linux** — extract `iris-linux-*.tar.gz` (GTK3 + WebKitGTK 4.1 required).
 
 ## Getting started
 
@@ -45,7 +58,7 @@ first, then the installed location) and registers it as **Local Iris**.
 
 ```
 irisd            # run the compute client (foreground)
-irisd --daemon   # same, detached
+irisd --daemon   # same, detached (output goes to irisd.log in the data directory)
 irisd --status   # show client status
 irisd --stop     # stop the running client
 ```
@@ -57,6 +70,11 @@ project slots and the result cache. It listens for management connections on **p
 
 > Default is `31418`, not BOINC's `31416`, so an Iris client and a stock BOINC client can coexist
 > on the same machine.
+
+Every GUI RPC connection has to authenticate: the first run generates a random password into
+`gui_rpc_auth.cfg` (owner-readable only), and the client refuses any command before the
+challenge–response handshake succeeds. Set `allow_remote_gui_rpc` to `0` in `cc_config.xml` to
+listen on `127.0.0.1` only.
 
 ### 2. Manage with the GUI
 
@@ -116,9 +134,10 @@ internal/                 shared Go packages
   cache/                  result cache (CPU/GPU, separate slots & projects)
   config/                 cc_config handling + data directory resolution
   detect/                 host hardware/GPU/CPU probe
-  guirpc/                 GUI-RPC server the manager talks to
-  i18n/                   embedded UI translations
+  guirpc/                 GUI-RPC server the manager talks to (per-connection authentication)
+  i18n/                   embedded UI translations, served to the frontend as `GetTranslations`
   local/                  local daemon detection & lifecycle management
+  prefs/                  global_prefs_override.xml store and the limits derived from it
   product/                shared product identity (name, version, port)
   project/                project (account) management
   scheduler/              BOINC project scheduler client + engine
@@ -138,8 +157,6 @@ calls plus a single event channel (`notice`) for deadline/error/offline notifica
 
 ## Roadmap
 
-- Frontend i18n wiring (translations are already embedded as Go strings)
-- Windows arm64 build target
 - .deb / .rpm / AppImage packaging for Linux
 - Automatic `irisd` first-run install flow inside the manager
 

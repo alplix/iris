@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/alplix/iris/internal/app"
+	"github.com/alplix/iris/internal/i18n"
 	"github.com/alplix/iris/internal/local"
 	"github.com/alplix/iris/internal/product"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -212,6 +214,39 @@ func (a *App) StopDaemon() error {
 		return nil
 	}
 	return local.StopDaemon(a.daemon)
+}
+
+// GetLanguages lists the UI languages for the picker.
+func (a *App) GetLanguages() []i18n.Language {
+	return i18n.Languages()
+}
+
+// GetLanguage returns the language the user picked, or "" if they never did
+// (the UI then follows the system language).
+func (a *App) GetLanguage() string {
+	if code := app.LoadSettings().Lang; i18n.Has(code) {
+		return code
+	}
+	return ""
+}
+
+// SetLanguage remembers the user's language choice.
+func (a *App) SetLanguage(code string) error {
+	if !i18n.Has(code) {
+		return fmt.Errorf("unsupported language %q", code)
+	}
+	s := app.LoadSettings()
+	s.Lang = code
+	if err := app.SaveSettings(s); err != nil {
+		return err
+	}
+	applyTrayLanguage(code)
+	return nil
+}
+
+// GetTranslations returns every UI string for code, English filling any gaps.
+func (a *App) GetTranslations(code string) map[string]string {
+	return i18n.Dump(code)
 }
 
 func (a *App) FmtCredit(v float64) string   { return app.FmtNum(v) }

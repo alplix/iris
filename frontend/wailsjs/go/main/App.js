@@ -58,8 +58,20 @@ export function GetHistory(arg1) {
   return window['go']['main']['App']['GetHistory'](arg1);
 }
 
+export function GetHostInfo() {
+  return window['go']['main']['App']['GetHostInfo']();
+}
+
 export function GetHosts() {
   return window['go']['main']['App']['GetHosts']();
+}
+
+export function GetLanguage() {
+  return window['go']['main']['App']['GetLanguage']();
+}
+
+export function GetLanguages() {
+  return window['go']['main']['App']['GetLanguages']();
 }
 
 export function GetPrefs(arg1) {
@@ -74,12 +86,16 @@ export function GetStats(arg1) {
   return window['go']['main']['App']['GetStats'](arg1);
 }
 
-export function GetXferHistory(arg1) {
-  return window['go']['main']['App']['GetXferHistory'](arg1);
+export function GetTranslations(arg1) {
+  return window['go']['main']['App']['GetTranslations'](arg1);
 }
 
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
+}
+
+export function GetXferHistory(arg1) {
+  return window['go']['main']['App']['GetXferHistory'](arg1);
 }
 
 export function LookupAccount(arg1, arg2, arg3) {
@@ -94,12 +110,16 @@ export function ProjectOp(arg1, arg2, arg3) {
   return window['go']['main']['App']['ProjectOp'](arg1, arg2, arg3);
 }
 
+export function RefreshAll() {
+  return window['go']['main']['App']['RefreshAll']();
+}
+
 export function RemoveHost(arg1) {
   return window['go']['main']['App']['RemoveHost'](arg1);
 }
 
-export function RefreshAll() {
-  return window['go']['main']['App']['RefreshAll']();
+export function SetLanguage(arg1) {
+  return window['go']['main']['App']['SetLanguage'](arg1);
 }
 
 export function SetPrefs(arg1, arg2) {
