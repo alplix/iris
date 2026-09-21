@@ -21,6 +21,10 @@ type Notice struct {
 	HostName string `json:"hostName"`
 	Title    string `json:"title"`
 	Body     string `json:"body"`
+	// Arg and Count let the UI phrase the notice in its own language; Title
+	// and Body are the English fallback.
+	Arg   string `json:"arg,omitempty"`
+	Count int    `json:"count,omitempty"`
 }
 
 type Manager struct {
@@ -193,7 +197,7 @@ func (m *Manager) checkNotices(snap *Snapshot, hostName string, note func(Notice
 				}
 				pending = append(pending, pend{Notice{
 					Kind: "deadline", HostID: snap.HostID, HostName: hostName,
-					Title: "Deadline warning", Body: name + " is due soon",
+					Title: "Deadline warning", Body: name + " is due soon", Arg: name,
 				}})
 			}
 		}
@@ -211,6 +215,7 @@ func (m *Manager) checkNotices(snap *Snapshot, hostName string, note func(Notice
 		pending = append(pending, pend{Notice{
 			Kind: "error", HostID: snap.HostID, HostName: hostName,
 			Title: "Task error", Body: hostName + ": " + itoa(w.errs-perrs) + " task(s) errored",
+			Count: w.errs - perrs,
 		}})
 	}
 	if !snap.Online && !poff {
@@ -499,6 +504,16 @@ type DiskInfo struct {
 
 const statLayout = "20060102"
 
+// statDay renders a <day> value as YYYYMMDD. BOINC sends unix seconds, older
+// Iris builds sent whole days since the epoch.
+func statDay(v float64) string {
+	sec := int64(v)
+	if v < 1e7 {
+		sec = int64(v) * 86400
+	}
+	return time.Unix(sec, 0).UTC().Format(statLayout)
+}
+
 func (m *Manager) Stats(hostID string) ([]StatSeries, error) {
 	cfg, ok := m.Store.Get(hostID)
 	if !ok {
@@ -511,7 +526,6 @@ func (m *Manager) Stats(hostID string) ([]StatSeries, error) {
 		}
 	}
 	var stats []boinc.ProjectStats
-	var userTotals map[string]float64
 	var err error
 	if cfg.Demo {
 		stats, err = m.mockFor(cfg).Stats()
@@ -524,23 +538,22 @@ func (m *Manager) Stats(hostID string) ([]StatSeries, error) {
 	if err != nil {
 		return nil, err
 	}
-	userByURL := map[string][]boinc.DailyStat{}
-	for _, ps := range stats {
-		userByURL[ps.MasterURL] = append(userByURL[ps.MasterURL], ps.Daily...)
-	}
-	_ = userTotals
 	var out []StatSeries
 	for _, ps := range stats {
 		ss := StatSeries{URL: ps.MasterURL, Name: nameByURL[ps.MasterURL]}
 		var running float64
 		for _, d := range ps.Daily {
-			running += d.TotalCredit.F()
-			day := time.Unix(d.Day.I64()*86400, 0).UTC().Format(statLayout)
-			ss.Daily = append(ss.Daily, StatPoint{
-				Day:        day,
-				HostCredit: running,
-				UserCredit: d.ExpavgCredit.F(),
-			})
+			pt := StatPoint{Day: statDay(d.Day.F())}
+			if d.Cumulative() {
+				// BOINC layout: every entry already holds the running totals.
+				pt.HostCredit = d.HostTotalCredit.F()
+				pt.UserCredit = d.UserTotalCredit.F()
+			} else {
+				running += d.TotalCredit.F()
+				pt.HostCredit = running
+				pt.UserCredit = d.ExpavgCredit.F()
+			}
+			ss.Daily = append(ss.Daily, pt)
 		}
 		sort.Slice(ss.Daily, func(i, j int) bool { return ss.Daily[i].Day < ss.Daily[j].Day })
 		out = append(out, ss)

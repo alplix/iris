@@ -28,6 +28,8 @@ func statusByPID(pid int) DaemonStatus {
 
 func StartDetached(exe string) (*exec.Cmd, error) {
 	cmd := exec.Command(exe, "--daemon")
+	// Tells the client it already is the background copy.
+	cmd.Env = append(os.Environ(), "IRIS_DETACHED=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,
 		CreationFlags: createNewProcessGroup | createNoWindow,

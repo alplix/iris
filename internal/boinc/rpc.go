@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -159,7 +161,20 @@ func (c *Client) Call(xml string) ([]byte, error) {
 		c.closeLocked()
 		return nil, rpcErr("request failed (%s:%d)", c.host, c.port)
 	}
+	if msg, ok := replyError(frame); ok {
+		return frame, rpcErr("%s", msg)
+	}
 	return frame, nil
+}
+
+var errReplyRe = regexp.MustCompile(`(?s)^<error>(.*?)</error>$`)
+
+// replyError recognises a reply whose whole payload is an <error> element.
+func replyError(frame []byte) (string, bool) {
+	if m := errReplyRe.FindSubmatch(stripWrapper(frame)); m != nil {
+		return html.UnescapeString(strings.TrimSpace(string(m[1]))), true
+	}
+	return "", false
 }
 
 func (c *Client) connectLocked() error {

@@ -22,6 +22,10 @@ type State struct {
 	Status    Status     `xml:"cc_status"`
 	Stats     []DayStats `xml:"statistics>day"`
 
+	OpenCLGpuProps []OpenCLProp `xml:"opencl_gpu_prop"`
+	Credits        []CreditDay  `xml:"credit_history>day"`
+	Xfers          []DayXfer    `xml:"daily_xfers>dx"`
+
 	mu      sync.RWMutex
 	stateFP string
 	seqno   int
@@ -41,6 +45,47 @@ type HostInfo struct {
 	HostCPID  string   `xml:"host_cpid"`
 	CamVer    string   `xml:"iris_version"`
 	GPUs      []string `xml:"gpu>name"`
+	Coprocs   Coprocs  `xml:"coprocs"`
+}
+
+// Coprocs mirrors the GPU section of a BOINC host_info so managers can list
+// the devices and their vendors.
+type Coprocs struct {
+	Count               float64  `xml:"count"`
+	CudaVersion         float64  `xml:"cudaVersion,omitempty"`
+	NvidiaDriverVersion string   `xml:"nvidiaDriverVersion,omitempty"`
+	NvidiaDevCount      float64  `xml:"nvidia_dev_count,omitempty"`
+	NvidiaDeviceNames   []string `xml:"nvidia_device_name"`
+	AmdDriverVersion    string   `xml:"amd_driver_version,omitempty"`
+	AtiDevCount         float64  `xml:"ati_dev_count,omitempty"`
+	AtiDeviceNames      []string `xml:"ati_device_name"`
+	IntelGpuDevCount    float64  `xml:"intel_gpu_dev_count,omitempty"`
+	IntelGpuDeviceNames []string `xml:"intel_gpu_device_name"`
+	OtherGpuDeviceNames []string `xml:"other_gpu_device_name"`
+}
+
+type OpenCLProp struct {
+	Vendor    string  `xml:"opencl_platform_vendor"`
+	Name      string  `xml:"opencl_device_name"`
+	GlobalMem float64 `xml:"opencl_device_global_mem"`
+}
+
+// CreditDay is one project's credit totals as of a given day (unix days).
+type CreditDay struct {
+	URL        string  `xml:"url"`
+	Day        int64   `xml:"d"`
+	UserTotal  float64 `xml:"ut"`
+	UserExpavg float64 `xml:"ue"`
+	HostTotal  float64 `xml:"ht"`
+	HostExpavg float64 `xml:"he"`
+}
+
+// DayXfer is the number of bytes moved on one day (unix days), in BOINC's
+// daily_xfers layout.
+type DayXfer struct {
+	When int64   `xml:"when"`
+	Up   float64 `xml:"up"`
+	Down float64 `xml:"down"`
 }
 
 type Project struct {
@@ -159,7 +204,12 @@ func (s *State) Load() error {
 	if err != nil {
 		return nil
 	}
-	return xml.Unmarshal(data, s)
+	if err := xml.Unmarshal(data, s); err != nil {
+		return err
+	}
+	// Transfers are live objects; anything persisted belongs to a previous run.
+	s.Transfers = nil
+	return nil
 }
 
 func (s *State) Save() error {
@@ -315,9 +365,10 @@ func (s *State) SetProjectUpdate(url string) {
 }
 
 func (s *State) MarshalState() ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return xml.MarshalIndent(s, "", "  ")
+	cp := s.Snapshot()
+	cp.Credits = nil
+	cp.Xfers = nil
+	return xml.MarshalIndent(cp, "", "  ")
 }
 
 func (s *State) GetNetworkMode() int {
@@ -414,5 +465,178 @@ func (s *State) Snapshot() *State {
 	copy(cp.Messages, s.Messages)
 	cp.Stats = make([]DayStats, len(s.Stats))
 	copy(cp.Stats, s.Stats)
+	cp.OpenCLGpuProps = append([]OpenCLProp(nil), s.OpenCLGpuProps...)
+	cp.Credits = append([]CreditDay(nil), s.Credits...)
+	cp.Xfers = append([]DayXfer(nil), s.Xfers...)
 	return cp
+}
+
+const (
+	maxCreditDays = 365
+	maxXferDays   = 365
+)
+
+func unixDay(t time.Time) int64 { return t.Unix() / 86400 }
+
+// UpdateProjectCredit stores the credit figures a project scheduler reported
+// and records them in the per-day history the Statistics page charts.
+func (s *State) UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url {
+			s.Projects[i].UserTotalCredit = userTotal
+			s.Projects[i].UserExpavgCredit = userExpavg
+			s.Projects[i].HostTotalCredit = hostTotal
+			s.Projects[i].HostExpavgCredit = hostExpavg
+			break
+		}
+	}
+	day := unixDay(time.Now())
+	entry := CreditDay{URL: url, Day: day, UserTotal: userTotal, UserExpavg: userExpavg, HostTotal: hostTotal, HostExpavg: hostExpavg}
+	for i := range s.Credits {
+		if s.Credits[i].URL == url && s.Credits[i].Day == day {
+			s.Credits[i] = entry
+			return
+		}
+	}
+	s.Credits = append(s.Credits, entry)
+	cutoff := day - maxCreditDays
+	kept := s.Credits[:0]
+	for _, c := range s.Credits {
+		if c.Day > cutoff {
+			kept = append(kept, c)
+		}
+	}
+	s.Credits = kept
+}
+
+// AddXfer accounts n transferred bytes to today's totals.
+func (s *State) AddXfer(upload bool, n int64) {
+	if n <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	day := unixDay(time.Now())
+	idx := -1
+	for i := range s.Xfers {
+		if s.Xfers[i].When == day {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.Xfers = append(s.Xfers, DayXfer{When: day})
+		idx = len(s.Xfers) - 1
+		if len(s.Xfers) > maxXferDays {
+			s.Xfers = s.Xfers[len(s.Xfers)-maxXferDays:]
+			idx = len(s.Xfers) - 1
+		}
+	}
+	if upload {
+		s.Xfers[idx].Up += float64(n)
+	} else {
+		s.Xfers[idx].Down += float64(n)
+	}
+}
+
+// BeginTransfer registers a live file transfer, replacing an earlier (failed)
+// one with the same name.
+func (s *State) BeginTransfer(x Xfer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Transfers {
+		if s.Transfers[i].Name == x.Name {
+			s.Transfers[i] = x
+			return
+		}
+	}
+	s.Transfers = append(s.Transfers, x)
+}
+
+func (s *State) SetTransferProgress(name string, done, total float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Transfers {
+		if s.Transfers[i].Name == name {
+			s.Transfers[i].BytesXferred = done
+			if total > 0 {
+				s.Transfers[i].Nbytes = total
+			}
+			return
+		}
+	}
+}
+
+// EndTransfer removes a finished transfer. A failed one is kept in a paused
+// state so it can be retried from the manager.
+func (s *State) EndTransfer(name string, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Transfers {
+		if s.Transfers[i].Name != name {
+			continue
+		}
+		if ok {
+			s.Transfers = append(s.Transfers[:i], s.Transfers[i+1:]...)
+		} else {
+			s.Transfers[i].Paused = 1
+		}
+		return
+	}
+}
+
+// TransferFailed reports whether name is a kept, failed transfer.
+func (s *State) TransferFailed(name string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.Transfers {
+		if t.Name == name {
+			return t.Paused == 1
+		}
+	}
+	return false
+}
+
+func (s *State) RemoveTransfer(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Transfers {
+		if s.Transfers[i].Name == name {
+			s.Transfers = append(s.Transfers[:i], s.Transfers[i+1:]...)
+			return
+		}
+	}
+}
+
+// ResetResultsWithFile puts errored results that reference the named file back
+// into the queue so the worker tries them again. It returns how many changed.
+func (s *State) ResetResultsWithFile(name string, errState, newState int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.Results {
+		r := &s.Results[i]
+		if r.State != errState {
+			continue
+		}
+		for _, f := range r.Files {
+			if f.Name == name {
+				r.State = newState
+				r.ExitStatus = 0
+				r.ReadyToReport = 0
+				r.ActiveTask = 0
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+func (s *State) SetPFlops(v float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.HostInfo.PFlops = v
 }

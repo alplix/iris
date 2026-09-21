@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/tls"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,10 +70,16 @@ type ResultXML struct {
 }
 
 type Reply struct {
-	XMLName       xml.Name        `xml:"scheduler_reply"`
-	Error         string          `xml:"error"`
-	TotalCredit   float64         `xml:"total_credit"`
-	ExpAvgCredit  float64         `xml:"expavg_credit"`
+	XMLName      xml.Name `xml:"scheduler_reply"`
+	Error        string   `xml:"error"`
+	TotalCredit  float64  `xml:"total_credit"`
+	ExpAvgCredit float64  `xml:"expavg_credit"`
+
+	UserTotalCredit  float64 `xml:"user_total_credit"`
+	UserExpavgCredit float64 `xml:"user_expavg_credit"`
+	HostTotalCredit  float64 `xml:"host_total_credit"`
+	HostExpavgCredit float64 `xml:"host_expavg_credit"`
+
 	ResourceShare float64         `xml:"resource_share"`
 	Message       string          `xml:"message"`
 	ServerTime    float64         `xml:"server_time"`
@@ -204,18 +212,71 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 	return &reply, nil
 }
 
+// ProgressFunc reports transfer progress; total is 0 when the size is unknown.
+type ProgressFunc func(done, total int64)
+
+// stallTimeout is how long a transfer may go without moving a byte.
+const stallTimeout = 60 * time.Second
+
 func (c *Client) DownloadFile(filename, destPath string) error {
-	url := c.GetFileURL(filename)
-	return downloadURL(url, destPath)
+	return c.DownloadFileCtx(context.Background(), filename, destPath, nil)
+}
+
+func (c *Client) DownloadFileCtx(ctx context.Context, filename, destPath string, progress ProgressFunc) error {
+	return downloadURL(ctx, c.GetFileURL(filename), destPath, progress)
 }
 
 func DownloadFileByURL(rawURL, destPath string) error {
-	return downloadURL(rawURL, destPath)
+	return downloadURL(context.Background(), rawURL, destPath, nil)
 }
 
-func downloadURL(url, destPath string) error {
-	httpClient := &http.Client{Timeout: 60 * time.Second}
-	resp, err := httpClient.Get(url)
+func DownloadFileByURLCtx(ctx context.Context, rawURL, destPath string, progress ProgressFunc) error {
+	return downloadURL(ctx, rawURL, destPath, progress)
+}
+
+// transferClient has no overall timeout: large work files legitimately take
+// minutes. Stalls are caught by the idle watchdog instead.
+var transferClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		TLSHandshakeTimeout:   20 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		IdleConnTimeout:       60 * time.Second,
+	},
+}
+
+// idleReader feeds progress and re-arms the stall watchdog on every read.
+type idleReader struct {
+	r        io.Reader
+	done     int64
+	total    int64
+	progress ProgressFunc
+	timer    *time.Timer
+}
+
+func (ir *idleReader) Read(p []byte) (int, error) {
+	n, err := ir.r.Read(p)
+	if n > 0 {
+		ir.done += int64(n)
+		ir.timer.Reset(stallTimeout)
+		if ir.progress != nil {
+			ir.progress(ir.done, ir.total)
+		}
+	}
+	return n, err
+}
+
+func downloadURL(ctx context.Context, url, destPath string, progress ProgressFunc) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stall := time.AfterFunc(stallTimeout, cancel)
+	defer stall.Stop()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+	resp, err := transferClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
@@ -225,49 +286,91 @@ func downloadURL(url, destPath string) error {
 		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
 	}
 
-	var reader io.Reader = resp.Body
+	var body io.Reader = resp.Body
+	total := resp.ContentLength
+	if total < 0 {
+		total = 0
+	}
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		gz, err := gzip.NewReader(resp.Body)
 		if err != nil {
 			return fmt.Errorf("gzip %s: %w", url, err)
 		}
 		defer gz.Close()
-		reader = gz
+		body = gz
+		total = 0
 	}
+	ir := &idleReader{r: body, total: total, progress: progress, timer: stall}
 
-	f, err := os.Create(destPath)
+	// Write to a temporary name so a half-finished file is never mistaken for
+	// a complete one.
+	tmp := destPath + ".part"
+	f, err := os.Create(tmp)
 	if err != nil {
-		return fmt.Errorf("create %s: %w", destPath, err)
+		return fmt.Errorf("create %s: %w", tmp, err)
 	}
-	defer f.Close()
-
-	_, err = io.Copy(f, reader)
-	return err
+	_, copyErr := io.Copy(f, ir)
+	closeErr := f.Close()
+	if copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		os.Remove(tmp)
+		if ctx.Err() != nil && errors.Is(copyErr, context.Canceled) {
+			return fmt.Errorf("download %s: cancelled or stalled", url)
+		}
+		return fmt.Errorf("download %s: %w", url, copyErr)
+	}
+	if err := os.Rename(tmp, destPath); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("finalize %s: %w", destPath, err)
+	}
+	return nil
 }
 
 func (c *Client) UploadFile(filePath, projectName string) error {
+	return c.UploadFileCtx(context.Background(), filePath, projectName, nil)
+}
+
+func (c *Client) UploadFileCtx(ctx context.Context, filePath, projectName string, progress ProgressFunc) error {
 	f, err := os.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", filePath, err)
 	}
 	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", filePath, err)
+	}
 
-	uploadURL := c.GetUploadURL()
-	var buf bytes.Buffer
-	buf.WriteString("--boundary\r\n")
-	buf.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"file\"; filename=\"%s\"\r\n", filepath.Base(filePath)))
-	buf.WriteString("Content-Type: application/octet-stream\r\n\r\n")
-	io.Copy(&buf, f)
-	buf.WriteString("\r\n--boundary--\r\n")
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stall := time.AfterFunc(stallTimeout, cancel)
+	defer stall.Stop()
 
-	resp, err := c.httpClient.Post(uploadURL, "multipart/form-data; boundary=boundary", &buf)
+	const boundary = "irisboundary7d8f1c"
+	fname := strings.NewReplacer(`\`, `\`, `"`, `\"`, "\r", "", "\n", "").Replace(filepath.Base(filePath))
+	head := "--" + boundary + "\r\n" +
+		`Content-Disposition: form-data; name="file"; filename="` + fname + `"` + "\r\n" +
+		"Content-Type: application/octet-stream\r\n\r\n"
+	tail := "\r\n--" + boundary + "--\r\n"
+	ir := &idleReader{r: f, total: st.Size(), progress: progress, timer: stall}
+	body := io.MultiReader(strings.NewReader(head), ir, strings.NewReader(tail))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.GetUploadURL(), body)
+	if err != nil {
+		return fmt.Errorf("upload %s: %w", filePath, err)
+	}
+	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
+	req.ContentLength = int64(len(head)) + st.Size() + int64(len(tail))
+	resp, err := transferClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("upload %s: %w", filePath, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("upload %s: HTTP %d (%s)", filePath, resp.StatusCode, string(raw))
 	}
 	return nil

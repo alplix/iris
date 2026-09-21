@@ -36,7 +36,7 @@ func Detect() Specs {
 	}
 	s.Vendor, s.Model = getCPUInfo()
 	s.PFlops = estimateFLOPS(s.Ncpus, s.Model)
-	s.DFree, s.DTotal = getDiskUsage()
+	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
 	s.HostCPID = getHostCPID()
 	if s.Vendor == "" {
