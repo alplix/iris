@@ -115,7 +115,8 @@ func NewMock(cfg HostCfg) *Mock {
 		m.tasks = append(m.tasks, &mockTask{t: tk, progress: pr, rate: 0.000008 + rnd.Float64()*0.00002})
 	}
 	for i := 0; i < 3; i++ {
-		if rnd.Float64() < 0.5 {
+		// The first transfer is always there; the others come and go.
+		if i > 0 && rnd.Float64() < 0.5 {
 			continue
 		}
 		up := rnd.Float64() < 0.4

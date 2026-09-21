@@ -45,7 +45,7 @@ func init() {
 		"dash.noFeed":         "Henüz bir şey yok",
 		"dash.noFeedHint":     "Sunucular bağlanınca olaylar burada görünecek.",
 		"dash.noServers":      "Henüz sunucu yok",
-		"dash.noServersHint":  "Iris istemcilerinizi Sunucular sekmesinden ekleyin. Hemen görmek için demo sunucusunu deneyin.",
+		"dash.noServersHint":  "Iris istemcilerinizi Sunucular sekmesinden ekleyin.",
 		"dash.onlineTot":      "{on}/{tot} çevrimiçi",
 		"dash.pauseAll":       "Tümünü duraklat",
 		"dash.paused":         "duraklatıldı",

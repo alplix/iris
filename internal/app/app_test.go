@@ -199,8 +199,7 @@ func TestSnapshotJSONKeys(t *testing.T) {
 
 func TestClientOpAll(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManager()
-	m.Store = &Store{path: filepath.Join(dir, "hosts.json")}
+	m := newManagerWith(&Store{path: filepath.Join(dir, "hosts.json")})
 	m.Store.Upsert(HostCfg{Name: "Demo A", Host: "localhost", Port: 31416, Demo: true})
 	m.Store.Upsert(HostCfg{Name: "Demo B", Host: "localhost", Port: 31416, Demo: true})
 	failed := m.ClientOpAll("setRunMode", "always")

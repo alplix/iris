@@ -45,7 +45,7 @@ func init() {
 		"dash.noFeed":         "Ancora niente",
 		"dash.noFeedHint":     "Gli eventi appariranno qui quando i server si connetteranno.",
 		"dash.noServers":      "Nessun server",
-		"dash.noServersHint":  "Aggiungi i tuoi client Iris dalla scheda Server. Prova il server demo per un'anteprima immediata.",
+		"dash.noServersHint":  "Aggiungi i tuoi client Iris dalla scheda Server.",
 		"dash.onlineTot":      "{on}/{tot} online",
 		"dash.pauseAll":       "Sospendi tutto",
 		"dash.paused":         "in pausa",

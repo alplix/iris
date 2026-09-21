@@ -2,7 +2,7 @@ package product
 
 const Name = "Iris"
 
-const Version = "1.0.1"
+const Version = "1.0.2"
 
 const RepoURL = "https://github.com/alplix/iris"
 
