@@ -40,6 +40,34 @@ manage `irisd` clients and other BOINC-compatible clients alike.
 Every release bundles `irisd` alongside the manager. The manager auto-detects it (bundled copy
 first, then the installed location) and registers it as **Local Iris**.
 
+### Client-only platforms (32-bit, RISC-V, POWER)
+
+The compute client `irisd` is pure Go with no native dependencies, so it also ships on its own for
+machines that cannot run the desktop manager. Manage them from the manager on any other computer
+(**Servers → Add Server**, port `31418`).
+
+| Archive | For |
+|---|---|
+| `irisd-windows-386.zip` | 32-bit Windows |
+| `irisd-linux-386.tar.gz` | 32-bit x86 Linux |
+| `irisd-linux-armv7.tar.gz` | 32-bit ARM: Raspberry Pi 2/3/4/5 running a 32-bit OS, most ARM boards |
+| `irisd-linux-armv6.tar.gz` | Raspberry Pi 1 / Zero |
+| `irisd-linux-riscv64.tar.gz` | RISC-V (64-bit) boards and servers |
+| `irisd-linux-ppc64le.tar.gz` | POWER8 and newer (little-endian) |
+| `irisd-linux-ppc64.tar.gz` | big-endian 64-bit PowerPC / POWER |
+
+The client's tests run on all of these in CI (through QEMU where the runner is x86-64). Two limits:
+
+- **Work availability is up to each project.** A project only sends tasks for platforms it has
+  applications for, and many projects have none for 32-bit ARM, RISC-V or POWER. Iris reports the
+  standard BOINC platform name of the machine (`riscv64-unknown-linux-gnu`,
+  `powerpc64le-unknown-linux-gnu`, `arm-unknown-linux-gnueabihf`, `i686-pc-linux-gnu`, ...).
+- **32-bit PowerPC** (G3/G4/G5-era Macs and boards) is not supported: the Go toolchain has no
+  32-bit PowerPC port.
+
+On boards and other CPUs Iris does not recognise it measures its own speed at startup instead of
+guessing, so a slow machine is not handed more work than it can finish.
+
 ## Install
 
 Download the latest release from the [Releases page](https://github.com/alplix/iris/releases).

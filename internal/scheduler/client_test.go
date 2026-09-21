@@ -142,3 +142,21 @@ func TestPlatformIsKnown(t *testing.T) {
 		t.Fatal("Platform must not be empty")
 	}
 }
+
+// Every architecture the release ships must have a proper BOINC platform name
+// rather than the GOARCH-GOOS fallback.
+func TestPlatformNamesForShippedArchitectures(t *testing.T) {
+	want := map[string]string{
+		"linux/386":     "i686-pc-linux-gnu",
+		"linux/arm":     "arm-unknown-linux-gnueabihf",
+		"linux/riscv64": "riscv64-unknown-linux-gnu",
+		"linux/ppc64le": "powerpc64le-unknown-linux-gnu",
+		"linux/ppc64":   "powerpc64-unknown-linux-gnu",
+		"windows/386":   "i686-pc-windows-gnu",
+	}
+	for k, v := range want {
+		if platforms[k] != v {
+			t.Errorf("platform for %s = %q, want %q", k, platforms[k], v)
+		}
+	}
+}

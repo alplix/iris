@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -50,21 +51,14 @@ func extractJSON(line string) string {
 }
 
 func getCPUInfoLinux() (string, string) {
-	out, err := exec.Command("cat", "/proc/cpuinfo").Output()
+	data, err := os.ReadFile("/proc/cpuinfo")
 	if err != nil {
 		return "", ""
 	}
-	s := string(out)
-	vendor := ""
-	model := ""
-	for _, line := range strings.Split(s, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "vendor_id:") {
-			vendor = strings.TrimSpace(strings.TrimPrefix(line, "vendor_id:"))
-		}
-		if strings.HasPrefix(line, "model name:") {
-			model = strings.TrimSpace(strings.TrimPrefix(line, "model name:"))
-		}
+	vendor, model := parseCPUInfo(string(data))
+	// Boards name themselves in the device tree, not in /proc/cpuinfo.
+	if board := deviceTreeModel(); board != "" && !strings.Contains(model, board) {
+		model = strings.TrimSpace(model + " (" + board + ")")
 	}
 	return vendor, model
 }
