@@ -1,4 +1,4 @@
-﻿import './style.css'
+import './style.css'
 
 const $ = s => document.querySelector(s)
 const $$ = s => [...document.querySelectorAll(s)]
@@ -21,11 +21,54 @@ let state = {
   prefs: {},
   about: {},
   filterStatus: 'all',
-  lastUpdate: null
+  lastUpdate: null,
+  lang: 'en',
+  languages: []
 }
 
 let prevSnaps = {}
 let notifPermission = 'default'
+
+let dict = {}
+
+// T looks a UI string up in the active language and fills {name} placeholders
+// from params. Unknown keys render as the key itself so gaps are easy to spot.
+function T(key, params) {
+  let s = dict[key]
+  if (s === undefined) return key
+  if (params) for (const k of Object.keys(params)) s = s.split('{' + k + '}').join(params[k])
+  return s
+}
+
+// Language codes are valid BCP 47 tags, so they double as the date locale.
+function locale() { return state.lang || 'en' }
+
+function pickLanguage(preferred) {
+  const codes = state.languages.map(l => l.code)
+  for (const tag of preferred) {
+    const base = String(tag || '').toLowerCase().split('-')[0]
+    if (codes.includes(base)) return base
+  }
+  return 'en'
+}
+
+async function setLanguage(code, remember) {
+  try { dict = await api('GetTranslations', code) || {} } catch (e) { dict = {} }
+  state.lang = code
+  document.documentElement.lang = code
+  if (remember) { try { await api('SetLanguage', code) } catch (e) {} }
+}
+
+async function loadLanguage() {
+  try { state.languages = await api('GetLanguages') || [] } catch (e) { state.languages = [] }
+  let code = ''
+  try { code = await api('GetLanguage') } catch (e) {}
+  const chosen = !!code
+  if (!code) code = pickLanguage(navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language])
+  // Remember an auto-detected language as well, so the tray menu (built by
+  // the Go side) follows it.
+  await setLanguage(code, !chosen)
+}
 
 function toast(msg, type = 'info') {
   const id = Date.now()
@@ -80,21 +123,21 @@ function fmtDuration(s) {
 function fmtAgo(ts) {
   if (!ts) return '-'
   const d = (Date.now() / 1000) - ts
-  if (d < 60) return 'just now'
-  if (d < 3600) return Math.floor(d / 60) + ' min ago'
-  if (d < 86400) return Math.floor(d / 3600) + ' h ago'
-  return Math.floor(d / 86400) + ' d ago'
+  if (d < 60) return T('ui.justNow')
+  if (d < 3600) return T('ui.minAgo', { n: Math.floor(d / 60) })
+  if (d < 86400) return T('ui.hAgo', { n: Math.floor(d / 3600) })
+  return T('ui.dAgo', { n: Math.floor(d / 86400) })
 }
 
 function fmtTime(ts) {
   if (!ts) return '-'
-  return new Date(ts * 1000).toLocaleString('en-US', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(ts * 1000).toLocaleString(locale(), { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function fmtDeadline(ts) {
   if (!ts) return '-'
   const diff = ts - Date.now() / 1000
-  if (diff <= 0) return '<span class="badge error">overdue</span>'
+  if (diff <= 0) return `<span class="badge error">${esc(T('ui.overdue'))}</span>`
   if (diff < 86400) return `<span class="badge paused">${fmtDuration(diff)}</span>`
   if (diff < 604800) return `${Math.round(diff / 86400)}d`
   return fmtTime(ts)
@@ -118,7 +161,7 @@ function projColor(url) {
 
 function statusBadge(s) {
   const map = { running: 'running', paused: 'paused', queued: 'queued', downloading: 'download', uploading: 'upload', error: 'error', ready: 'ready' }
-  return `<span class="badge ${map[s] || 'queued'}">${esc(s)}</span>`
+  return `<span class="badge ${map[s] || 'queued'}">${esc(T('st.' + s))}</span>`
 }
 
 function spark(values, w = 200, h = 36, color = 'var(--indigo)') {
@@ -165,10 +208,14 @@ async function refreshHosts() {
   state.lastUpdate = Date.now()
   if (state.page === 'settings') loadSettingsData()
   checkNotifications()
-  if (!state.modal) render()
+  if (!state.modal && !isEditing()) render()
 }
 
+// The page fades in when it changes; background refreshes must not replay it.
+let animateNext = true
+
 function setPage(page) {
+  animateNext = true
   state.page = page
   state.modal = null
   state.searchQuery = ''
@@ -179,8 +226,25 @@ function setPage(page) {
 }
 
 function render() {
+  // Rebuilding the DOM would reset the scroll position of the page.
+  const scroll = $('.content')?.scrollTop || 0
   renderShell()
   renderContent()
+  const content = $('.content')
+  if (content && scroll) {
+    content.style.scrollBehavior = 'auto'
+    content.scrollTop = scroll
+    content.style.scrollBehavior = ''
+  }
+  if (!animateNext) $('.content-inner')?.classList.add('no-anim')
+  animateNext = false
+}
+
+// True while the user is typing or choosing in a form control; a background
+// refresh must not rebuild the page underneath them.
+function isEditing() {
+  const el = document.activeElement
+  return !!el && el.closest?.('#app') && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
 }
 
 function renderShell() {
@@ -195,48 +259,48 @@ function renderShell() {
           </div>
           <div class="logo-text">
             <div class="logo-title">Iris</div>
-            <div class="logo-sub">Grid Manager</div>
+            <div class="logo-sub">${esc(T('app.tagline'))}</div>
           </div>
         </div>
         <nav class="nav">
           <div class="nav-item ${state.page === 'dashboard' ? 'active' : ''}" data-page="dashboard">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            <span>Dashboard</span>
+            <span>${esc(T('nav.dash'))}</span>
           </div>
           <div class="nav-item ${state.page === 'tasks' ? 'active' : ''}" data-page="tasks">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-            <span>Tasks</span>
+            <span>${esc(T('nav.tasks'))}</span>
             ${fs.running > 0 ? `<span class="nav-count num">${fs.running}</span>` : ''}
           </div>
           <div class="nav-item ${state.page === 'projects' ? 'active' : ''}" data-page="projects">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-            <span>Projects</span>
+            <span>${esc(T('nav.projects'))}</span>
           </div>
           <div class="nav-item ${state.page === 'transfers' ? 'active' : ''}" data-page="transfers">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4"/></svg>
-            <span>Transfers</span>
+            <span>${esc(T('nav.transfers'))}</span>
             ${fs.downloads + fs.uploads > 0 ? `<span class="nav-count num">${fs.downloads + fs.uploads}</span>` : ''}
           </div>
           <div class="nav-item ${state.page === 'messages' ? 'active' : ''}" data-page="messages">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
-            <span>Messages</span>
+            <span>${esc(T('nav.messages'))}</span>
           </div>
           <div class="nav-item ${state.page === 'stats' ? 'active' : ''}" data-page="stats">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
-            <span>Stats</span>
+            <span>${esc(T('nav.stats'))}</span>
           </div>
           <div class="nav-item ${state.page === 'hosts' ? 'active' : ''}" data-page="hosts">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-            <span>Servers</span>
+            <span>${esc(T('nav.hosts'))}</span>
           </div>
           <div class="nav-item ${state.page === 'settings' ? 'active' : ''}" data-page="settings">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-            <span>Settings</span>
+            <span>${esc(T('nav.settings'))}</span>
           </div>
         </nav>
         <div class="side-foot">
-          <span>v${esc(state.about.version || '1.0.0')} - desktop management</span>
-          <span class="credit">Coded by <b>Alperen Yavuz</b></span>
+          <span>${esc(T('app.footer', { v: state.about.version || '1.0.0' }))}</span>
+          <span class="credit">${T('app.codedBy', { a: '<b>Alperen Yavuz</b>' })}</span>
         </div>
       </aside>
       <div class="main">
@@ -245,11 +309,11 @@ function renderShell() {
             <div class="page-title">${pageTitle()}</div>
             <div class="page-sub">${pageSub()}</div>
           </div>
-          ${state.lastUpdate ? `<span class="faint num last-up" title="Last refreshed">${fmtAgo(state.lastUpdate / 1000)}</span>` : ''}
-          <button class="btn sm" onclick="window._manualRefresh()" title="Refresh now">âŸ³</button>
-          <span class="dot ${fs.online > 0 ? 'on' : 'off'}" title="${fs.online}/${fs.total} online"></span>
-          <button class="btn sm" onclick="window._toggleTheme()" title="Toggle theme">
-            ${state.theme === 'dark' ? 'â˜€ï¸' : 'ğŸŒ™'}
+          ${state.lastUpdate ? `<span class="faint num last-up" title="${esc(T('ui.lastRefreshed'))}">${fmtAgo(state.lastUpdate / 1000)}</span>` : ''}
+          <button class="btn sm" onclick="window._manualRefresh()" title="${esc(T('ui.refreshNow'))}">⟳</button>
+          <span class="dot ${fs.online > 0 ? 'on' : 'off'}" title="${fs.online}/${fs.total} ${esc(T('ui.online'))}"></span>
+          <button class="btn sm" onclick="window._toggleTheme()" title="${esc(T('ui.toggleTheme'))}">
+            ${state.theme === 'dark' ? '☀️' : '🌙'}
           </button>
         </div>
         <div class="content" id="content"></div>
@@ -265,13 +329,13 @@ function renderShell() {
 }
 
 function pageTitle() {
-  const map = { dashboard: 'Dashboard', tasks: 'Tasks', projects: 'Projects', transfers: 'Transfers', messages: 'Messages', stats: 'Statistics', hosts: 'Servers', settings: 'Settings' }
-  return map[state.page] || 'Dashboard'
+  const map = { dashboard: 'page.dash', tasks: 'page.tasks', projects: 'page.projects', transfers: 'page.transfers', messages: 'page.messages', stats: 'page.stats', hosts: 'page.hosts', settings: 'page.settings' }
+  return esc(T(map[state.page] || 'page.dash'))
 }
 
 function pageSub() {
   const fs = fleetSummary()
-  return `${state.hosts.length} host(s) configured, ${fs.online} online Â· ${fs.running} running`
+  return esc(T('ui.pageSub', { n: state.hosts.length, on: fs.online, run: fs.running }))
 }
 
 function renderContent() {
@@ -310,7 +374,7 @@ function renderDashboard() {
           <div class="row" style="min-width:0">
             <span class="dot ${online ? 'on' : 'off'}" style="flex-shrink:0"></span>
             <div style="min-width:0">
-              <div class="trunc" style="font-weight:700;font-size:15px">${esc(h.name)}${h.demo ? '<span class="chip plain" style="margin-left:8px">demo</span>' : ''}</div>
+              <div class="trunc" style="font-weight:700;font-size:15px">${esc(h.name)}${h.demo ? `<span class="chip plain" style="margin-left:8px">${esc(T('ui.demo'))}</span>` : ''}</div>
               <div class="faint num">${esc(h.host)}:${h.port}</div>
             </div>
           </div>
@@ -318,20 +382,20 @@ function renderDashboard() {
         </div>
         ${online ? `
           <div class="row wrap" style="gap:14px">
-            <span><b class="num">${snap.totals?.running || 0}</b> <span class="muted">running</span></span>
-            <span><b class="num">${snap.totals?.paused || 0}</b> <span class="muted">paused</span></span>
-            <span><b class="num">${snap.totals?.queued || 0}</b> <span class="muted">queued</span></span>
-            ${(snap.totals?.errors || 0) > 0 ? `<span class="badge error">${snap.totals.errors} error(s)</span>` : ''}
+            <span><b class="num">${snap.totals?.running || 0}</b> <span class="muted">${esc(T('dash.running'))}</span></span>
+            <span><b class="num">${snap.totals?.paused || 0}</b> <span class="muted">${esc(T('dash.paused'))}</span></span>
+            <span><b class="num">${snap.totals?.queued || 0}</b> <span class="muted">${esc(T('dash.queue'))}</span></span>
+            ${(snap.totals?.errors || 0) > 0 ? `<span class="badge error">${esc(T('ui.errors', { n: snap.totals.errors }))}</span>` : ''}
           </div>
           <div class="spread faint">
-            <span>RAC <b class="num muted">${fmtCredit(snap.totals?.rac)}</b></span>
-            <span>Credit <b class="num muted">${fmtCredit(snap.totals?.credit)}</b></span>
+            <span>${esc(T('dash.racLbl'))} <b class="num muted">${fmtCredit(snap.totals?.rac)}</b></span>
+            <span>${esc(T('dash.creditLbl'))} <b class="num muted">${fmtCredit(snap.totals?.credit)}</b></span>
           </div>
-          ${sparkline ? `<div class="spark-wrap"><span class="faint" style="font-size:11px">activity</span>${sparkline}</div>` : ''}
+          ${sparkline ? `<div class="spark-wrap"><span class="faint" style="font-size:11px">${esc(T('ui.activity'))}</span>${sparkline}</div>` : ''}
           <div class="row wrap" style="gap:6px">${projects}</div>
         ` : `
           <div class="empty" style="padding:18px 10px">
-            <b>${snap?.error || 'Waiting for connection...'}</b>
+            <b>${esc(snap?.error || T('ui.waiting'))}</b>
           </div>
         `}
       </div>
@@ -351,23 +415,23 @@ function renderDashboard() {
   return `<div class="content-inner">
     <div class="stats-grid">
       <div class="card hoverable">
-        <div class="row"><div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg></div><div><div class="stat-label">Servers</div><div class="stat-value num">${fs.online}/${fs.total}</div><div class="faint">online</div></div></div>
+        <div class="row"><div class="stat-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg></div><div><div class="stat-label">${esc(T('dash.servers'))}</div><div class="stat-value num">${fs.online}/${fs.total}</div><div class="faint">${esc(T('ui.online'))}</div></div></div>
       </div>
       <div class="card hoverable">
-        <div class="row"><div class="stat-icon alt"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-label">Active Tasks</div><div class="stat-value num">${fs.running}</div><div class="faint">${fs.paused} paused Â· ${fs.queued} queued</div></div></div>
+        <div class="row"><div class="stat-icon alt"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div><div><div class="stat-label">${esc(T('dash.activeTasks'))}</div><div class="stat-value num">${fs.running}</div><div class="faint">${esc(T('ui.pausedQueued', { p: fs.paused, q: fs.queued }))}</div></div></div>
       </div>
       <div class="card hoverable">
-        <div class="row"><div class="stat-icon soft"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></div><div><div class="stat-label">Fleet RAC</div><div class="stat-value num gain-pos">${fmtCredit(fs.rac)}</div><div class="faint">recent average credit</div></div></div>
+        <div class="row"><div class="stat-icon soft"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></div><div><div class="stat-label">${esc(T('dash.fleetRac'))}</div><div class="stat-value num gain-pos">${fmtCredit(fs.rac)}</div><div class="faint">${esc(T('dash.racHint'))}</div></div></div>
       </div>
       <div class="card hoverable">
-        <div class="row"><div class="stat-icon alt"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg></div><div><div class="stat-label">Total Credit</div><div class="stat-value num">${fmtCredit(fs.credit)}</div><div class="faint">across all projects</div></div></div>
+        <div class="row"><div class="stat-icon alt"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg></div><div><div class="stat-label">${esc(T('dash.totalCredit'))}</div><div class="stat-value num">${fmtCredit(fs.credit)}</div><div class="faint">${esc(T('ui.acrossProjects'))}</div></div></div>
       </div>
     </div>
-    <div class="cards-grid">${serverCards || '<div class="card"><div class="empty"><b>No servers configured</b><span class="faint">Add a server to get started</span></div></div>'}</div>
-    ${fs.errors > 0 ? `<div class="card" style="border-color:rgba(239,68,68,0.4)"><div class="card-head"><h2 class="card-title" style="color:var(--err)">Task Errors</h2></div><div class="faint">${fs.errors} task(s) across the fleet are in an error state</div></div>` : ''}
+    <div class="cards-grid">${serverCards || `<div class="card"><div class="empty"><b>${esc(T('dash.noServers'))}</b><span class="faint">${esc(T('dash.noServersHint'))}</span></div></div>`}</div>
+    ${fs.errors > 0 ? `<div class="card" style="border-color:rgba(239,68,68,0.4)"><div class="card-head"><h2 class="card-title" style="color:var(--err)">${esc(T('ui.taskErrors'))}</h2></div><div class="faint">${esc(T('ui.taskErrorsBody', { n: fs.errors }))}</div></div>` : ''}
     ${recent.length > 0 ? `
       <div class="card">
-        <div class="card-head"><h2 class="card-title">Recent Activity</h2></div>
+        <div class="card-head"><h2 class="card-title">${esc(T('dash.recent'))}</h2></div>
         ${recent.map(m => `<div class="msg-line"><span class="msg-pri-${Math.min(m.pri || 1, 3)} num faint" style="flex-shrink:0">${fmtAgo(m.time)}</span><span class="grow trunc" title="${jsq(m.body)}">${esc(m.body)}</span></div>`).join('')}
       </div>
     ` : ''}
@@ -385,7 +449,7 @@ function renderTasks() {
       if (state.filterStatus !== 'all' && t.status !== state.filterStatus) continue
       if (state.searchQuery) {
         const q = state.searchQuery.toLowerCase()
-        if (!(t.name || '').toLowerCase().includes(q) && !(t.projectName || '').toLowerCase().includes(q)) continue
+        if (!(t.name || '').toLowerCase().includes(q) && !(t.projectName || '').toLowerCase().includes(q) && !(host?.name || '').toLowerCase().includes(q)) continue
       }
       const pct = Math.round((t.progress || 0) * 100)
       rows += `<tr>
@@ -400,25 +464,26 @@ function renderTasks() {
         <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
         <td>
           <div class="row" style="gap:4px">
-            ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','suspend')" title="Pause">â¸</button>` : ''}
-            ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','resume')" title="Resume">â–¶</button>` : ''}
-            ${t.status === 'error' ? `<button class="btn sm danger" onclick="window._taskOp('${hid}','${t.name}','abort')" title="Abort">âœ•</button>` : ''}
+            ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','suspend')" title="${esc(T('ui.pause'))}">⏸</button>` : ''}
+            ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','resume')" title="${esc(T('ui.resume'))}">▶</button>` : ''}
+            ${t.status === 'error' ? `<button class="btn sm danger" onclick="window._taskOp('${hid}','${t.name}','abort')" title="${esc(T('ui.abort'))}">✕</button>` : ''}
           </div>
         </td>
       </tr>`
     }
   }
+  const filterLabels = { all: 'tasks.fAll', running: 'tasks.fRunning', paused: 'tasks.fPaused', queued: 'tasks.fQueued', error: 'tasks.fError' }
   const filterButtons = ['all', 'running', 'paused', 'downloading', 'uploading', 'queued', 'error', 'ready'].map(s =>
-    `<button class="btn sm ${state.filterStatus === s ? 'primary' : ''}" onclick="window._setFilter('${s}')">${esc(s)}</button>`
+    `<button class="btn sm ${state.filterStatus === s ? 'primary' : ''}" onclick="window._setFilter('${s}')">${esc(T(filterLabels[s] || 'st.' + s))}</button>`
   ).join('')
   return `<div class="content-inner">
     <div class="card">
       <div class="card-head">
-        <h2 class="card-title">All Tasks</h2>
-        <input class="input" style="width:240px;padding:6px 12px" placeholder="Search tasks..." value="${jsq(state.searchQuery)}" oninput="window._searchTasks(this.value)">
+        <h2 class="card-title">${esc(T('ui.allTasks'))}</h2>
+        <input class="input" style="width:240px;padding:6px 12px" placeholder="${esc(T('tasks.searchPh'))}" value="${jsq(state.searchQuery)}" oninput="window._searchTasks(this.value)">
       </div>
       <div class="row wrap" style="gap:6px;margin-bottom:14px">${filterButtons}</div>
-      ${rows ? `<div class="tbl-wrap"><table class="tbl" style="min-width:1080px"><thead><tr><th>Name</th><th>Project</th><th>Status</th><th>Deadline</th><th>Progress</th><th>Elapsed</th><th>ETA</th><th>Resources</th><th>Server</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty"><b>No tasks</b></div>'}
+      ${rows ? `<div class="tbl-wrap"><table class="tbl" style="min-width:1080px"><thead><tr><th>${esc(T('tbl.name'))}</th><th>${esc(T('tbl.project'))}</th><th>${esc(T('tbl.status'))}</th><th>${esc(T('tbl.deadline'))}</th><th>${esc(T('tbl.progress'))}</th><th>${esc(T('tbl.elapsed'))}</th><th>${esc(T('tbl.eta'))}</th><th>${esc(T('tbl.resources'))}</th><th>${esc(T('tbl.server'))}</th><th>${esc(T('tbl.actions'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><b>${esc(T('tasks.empty'))}</b><span class="faint">${esc(T('tasks.emptyHint'))}</span></div>`}
     </div>
   </div>`
 }
@@ -436,38 +501,38 @@ function renderProjects() {
             <div style="min-width:0;flex:1"><div class="trunc" style="font-weight:700;font-size:14px">${esc(p.name)}</div><div class="faint num trunc" style="font-size:11px">${esc(p.url)}</div></div>
           </div>
           <div class="spread faint num" style="font-size:12px">
-            <span>Host RAC: <b>${fmtCredit(p.hostRac)}</b></span>
-            <span>Host Credit: <b>${fmtCredit(p.hostCredit)}</b></span>
+            <span>${esc(T('ui.hostRac'))}: <b>${fmtCredit(p.hostRac)}</b></span>
+            <span>${esc(T('ui.hostCredit'))}: <b>${fmtCredit(p.hostCredit)}</b></span>
           </div>
           <div class="spread faint num" style="font-size:12px">
-            <span>User: <b>${fmtCredit(p.userCredit)}</b></span>
-            <span>RAC: <b>${fmtCredit(p.rac)}</b></span>
+            <span>${esc(T('ui.userCredit'))}: <b>${fmtCredit(p.userCredit)}</b></span>
+            <span>${esc(T('ui.rac'))}: <b>${fmtCredit(p.rac)}</b></span>
           </div>
           <div class="row wrap" style="gap:6px">
             <span class="chip plain">${esc(host?.name || hid)}</span>
-            ${p.pending ? '<span class="badge queued">updating</span>' : ''}
-            ${p.suspended ? '<span class="badge paused">suspended</span>' : ''}
-            ${p.noMoreWork ? '<span class="badge queued">no more work</span>' : ''}
+            ${p.pending ? `<span class="badge queued">${esc(T('ui.updating'))}</span>` : ''}
+            ${p.suspended ? `<span class="badge paused">${esc(T('bd.suspended'))}</span>` : ''}
+            ${p.noMoreWork ? `<span class="badge queued">${esc(T('ui.noMoreWork'))}</span>` : ''}
           </div>
           <div class="row wrap" style="gap:4px;margin-top:4px">
             ${p.suspended
-              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','resume')">Resume</button>`
-              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','suspend')">Suspend</button>`
+              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','resume')">${esc(T('proj.btnResume'))}</button>`
+              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','suspend')">${esc(T('proj.btnSuspend'))}</button>`
             }
-            <button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','update')">Update</button>
+            <button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','update')">${esc(T('proj.btnUpdate'))}</button>
             ${p.noMoreWork
-              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','allowmorework')">Allow Work</button>`
-              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','nomorework')">No More Work</button>`
+              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','allowmorework')">${esc(T('proj.btnAllow'))}</button>`
+              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','nomorework')">${esc(T('proj.btnNoMore'))}</button>`
             }
-            <button class="btn sm danger" onclick="window._projectOp('${hid}','${p.url}','detach')">Detach</button>
+            <button class="btn sm danger" onclick="window._projectOp('${hid}','${p.url}','detach')">${esc(T('proj.detachBtn'))}</button>
           </div>
         </div>
       `
     }
   }
   return `<div class="content-inner">
-    <div style="display:flex;justify-content:flex-end"><button class="btn primary" onclick="window._showAttachProject()">+ Attach Project</button></div>
-    <div class="cards-grid">${cards || '<div class="card"><div class="empty"><b>No projects</b><span class="faint">Attach a project to get started</span></div></div>'}</div>
+    <div style="display:flex;justify-content:flex-end"><button class="btn primary" onclick="window._showAttachProject()">+ ${esc(T('proj.add'))}</button></div>
+    <div class="cards-grid">${cards || `<div class="card"><div class="empty"><b>${esc(T('proj.empty'))}</b><span class="faint">${esc(T('proj.emptyHint'))}</span></div></div>`}</div>
   </div>`
 }
 
@@ -481,14 +546,14 @@ function renderTransfers() {
       rows += `<tr>
         <td class="trunc" title="${jsq(t.name)}" style="max-width:220px">${esc(t.name)}</td>
         <td>${esc(t.projectName || '-')}</td>
-        <td><span class="badge ${t.upload ? 'upload' : 'download'}">${t.upload ? 'Upload' : 'Download'}</span></td>
+        <td><span class="badge ${t.upload ? 'upload' : 'download'}">${esc(T(t.upload ? 'stats.up' : 'stats.down'))}</span></td>
         <td><div class="progress"><div class="fill" style="width:${pct}%"></div></div><span class="faint num">${pct}%</span></td>
         <td class="num">${fmtBytes(t.done)} / ${fmtBytes(t.total)}</td>
         <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
         <td>
           <div class="row" style="gap:4px">
-            ${t.paused ? `<button class="btn sm" onclick="window._transferOp('${hid}','${t.name}','retry')">Retry</button>` : ''}
-            <button class="btn sm danger" onclick="window._transferOp('${hid}','${t.name}','abort')">Abort</button>
+            ${t.paused ? `<button class="btn sm" onclick="window._transferOp('${hid}','${t.name}','retry')">${esc(T('trns.retry'))}</button>` : ''}
+            <button class="btn sm danger" onclick="window._transferOp('${hid}','${t.name}','abort')">${esc(T('ui.abort'))}</button>
           </div>
         </td>
       </tr>`
@@ -496,8 +561,8 @@ function renderTransfers() {
   }
   return `<div class="content-inner">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Transfers</h2></div>
-      ${rows ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Project</th><th>Type</th><th>Progress</th><th>Size</th><th>Server</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="empty"><b>No active transfers</b></div>'}
+      <div class="card-head"><h2 class="card-title">${esc(T('nav.transfers'))}</h2></div>
+      ${rows ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>${esc(T('tbl.name'))}</th><th>${esc(T('tbl.project'))}</th><th>${esc(T('tbl.type'))}</th><th>${esc(T('tbl.progress'))}</th><th>${esc(T('trns.size'))}</th><th>${esc(T('tbl.server'))}</th><th>${esc(T('tbl.actions'))}</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty"><b>${esc(T('trns.empty'))}</b><span class="faint">${esc(T('trns.emptyHint'))}</span></div>`}
     </div>
   </div>`
 }
@@ -514,17 +579,17 @@ function renderMessages() {
 
   return `<div class="content-inner">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Messages</h2></div>
+      <div class="card-head"><h2 class="card-title">${esc(T('nav.messages'))}</h2></div>
       ${msgs.length > 0 ? msgs.slice(0, 100).map(m => {
         const host = state.hosts.find(h => h.id === m.hostId)
         return `<div class="msg-line"><span class="msg-pri-${Math.min(m.pri || 1, 3)} num faint" style="flex-shrink:0">${fmtTime(m.time)}</span><span class="grow trunc" title="${jsq(m.body)}">${esc(m.body)}</span><span class="chip plain" style="flex-shrink:0">${esc(host?.name || m.hostId)}</span></div>`
-      }).join('') : '<div class="empty"><b>No messages</b></div>'}
+      }).join('') : `<div class="empty"><b>${esc(T('msg.empty'))}</b></div>`}
     </div>
   </div>`
 }
 
 function svgLineChart(data, width, height, color) {
-  if (!data || data.length < 2) return '<div class="empty" style="padding:18px"><b class="faint">Not enough data yet</b></div>'
+  if (!data || data.length < 2) return `<div class="empty" style="padding:18px"><b class="faint">${esc(T('ui.notEnoughData'))}</b></div>`
   const pad = { l: 50, r: 10, t: 10, b: 28 }
   const cw = width - pad.l - pad.r
   const ch = height - pad.t - pad.b
@@ -568,7 +633,7 @@ function svgLineChart(data, width, height, color) {
 }
 
 function svgBarChart(data, width, height, upColor, downColor) {
-  if (!data || data.length === 0) return '<div class="empty" style="padding:18px"><b class="faint">No transfer history yet</b></div>'
+  if (!data || data.length === 0) return `<div class="empty" style="padding:18px"><b class="faint">${esc(T('ui.noXferHistory'))}</b></div>`
   const pad = { l: 50, r: 10, t: 10, b: 28 }
   const cw = width - pad.l - pad.r
   const ch = height - pad.t - pad.b
@@ -611,7 +676,7 @@ function renderStats() {
     const c = $('#content')
     if (c && state.page === 'stats') c.innerHTML = renderStatsInner()
   })
-  return `<div class="content-inner"><div class="card"><div class="empty"><b>Loading stats...</b></div></div></div>`
+  return `<div class="content-inner"><div class="card"><div class="empty"><b>${esc(T('ui.loadingStats'))}</b></div></div></div>`
 }
 
 function renderStatsInner() {
@@ -635,17 +700,28 @@ function renderStatsInner() {
   }
 
   let xferChart = ''
+  // Sum every server's traffic per day (a later server must not replace an earlier one).
+  const byDay = new Map()
   for (const h of state.hosts) {
-    const xf = state.xfers[h.id] || []
-    xferData = xf.map(d => ({ up: d.up || 0, down: d.down || 0, l: new Date((d.when || 0) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) }))
+    for (const d of state.xfers[h.id] || []) {
+      const day = Math.floor((d.when || 0) / 86400)
+      const e = byDay.get(day) || { up: 0, down: 0, when: d.when || 0 }
+      e.up += d.up || 0
+      e.down += d.down || 0
+      byDay.set(day, e)
+    }
   }
+  xferData = [...byDay.entries()].sort((a, b) => a[0] - b[0]).map(([, e]) => ({
+    up: e.up, down: e.down,
+    l: new Date(e.when * 1000).toLocaleDateString(locale(), { month: 'short', day: 'numeric' })
+  }))
   if (xferData.length > 0) {
     xferChart = `
       <div class="card" style="display:flex;flex-direction:column;gap:8px">
-        <div class="card-head"><h3 class="card-title" style="font-size:14px">Transfer History (30 days)</h3></div>
+        <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('ui.xferHistory'))}</h3></div>
         <div class="row" style="gap:16px;padding-left:16px;margin-bottom:4px">
-          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#6366f1"></span><span class="faint" style="font-size:11px">Download</span></span>
-          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#a78bfa"></span><span class="faint" style="font-size:11px">Upload</span></span>
+          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#6366f1"></span><span class="faint" style="font-size:11px">${esc(T('stats.down'))}</span></span>
+          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#a78bfa"></span><span class="faint" style="font-size:11px">${esc(T('stats.up'))}</span></span>
         </div>
         ${svgBarChart(xferData, 800, 220, '#a78bfa', '#6366f1')}
       </div>
@@ -671,9 +747,9 @@ function renderStatsInner() {
     }
     diskCards += `
       <div class="card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="card-head"><h3 class="card-title" style="font-size:14px">Disk Usage</h3><span class="chip plain">${esc(h.name)}</span></div>
+        <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('ui.diskUsage'))}</h3><span class="chip plain">${esc(h.name)}</span></div>
         <div class="progress striped" style="height:10px"><div class="fill" style="width:${pct}%"></div></div>
-        <div class="spread faint num" style="font-size:12px"><span>${fmtBytes(used)} used</span><span>${fmtBytes(du.free)} free</span><span>${fmtBytes(du.total)} total</span></div>
+        <div class="spread faint num" style="font-size:12px"><span>${esc(T('ui.bytesUsed', { v: fmtBytes(used) }))}</span><span>${esc(T('ui.bytesFree', { v: fmtBytes(du.free) }))}</span><span>${esc(T('ui.bytesTotal', { v: fmtBytes(du.total) }))}</span></div>
         ${projectBars ? `<div style="display:flex;flex-direction:column;gap:5px;margin-top:6px">${projectBars}</div>` : ''}
       </div>
     `
@@ -681,10 +757,10 @@ function renderStatsInner() {
 
   const hasData = creditCharts || xferChart || diskCards
   return `<div class="content-inner">
-    ${creditCharts ? `<div class="section-title"><h2>Credit History</h2></div><div style="display:flex;flex-direction:column;gap:14px">${creditCharts}</div>` : ''}
+    ${creditCharts ? `<div class="section-title"><h2>${esc(T('ui.creditHistory'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${creditCharts}</div>` : ''}
     ${xferChart ? `<div style="display:flex;flex-direction:column;gap:14px">${xferChart}</div>` : ''}
-    ${diskCards ? `<div class="section-title"><h2>Disk Usage</h2></div><div class="cards-grid">${diskCards}</div>` : ''}
-    ${!hasData ? '<div class="card"><div class="empty"><b>No stats available</b><span class="faint">Connect to a host to see statistics</span></div></div>' : ''}
+    ${diskCards ? `<div class="section-title"><h2>${esc(T('ui.diskUsage'))}</h2></div><div class="cards-grid">${diskCards}</div>` : ''}
+    ${!hasData ? `<div class="card"><div class="empty"><b>${esc(T('stats.noData'))}</b><span class="faint">${esc(T('ui.noStatsHint'))}</span></div></div>` : ''}
   </div>`
 }
 
@@ -702,21 +778,21 @@ function renderHosts() {
             <div><div style="font-weight:700;font-size:15px">${esc(h.name)}</div><div class="faint num">${esc(h.host)}:${h.port}</div></div>
           </div>
           <div class="row" style="gap:6px">
-            <button class="btn sm" onclick="window._showEditHost('${h.id}')">Edit</button>
-            <button class="btn sm" onclick="window._testHost('${h.id}')">Test</button>
-            <button class="btn sm danger" onclick="window._removeHost('${h.id}')">Remove</button>
+            <button class="btn sm" onclick="window._showEditHost('${h.id}')">${esc(T('common.edit'))}</button>
+            <button class="btn sm" onclick="window._testHost('${h.id}')">${esc(T('hosts.test'))}</button>
+            <button class="btn sm danger" onclick="window._removeHost('${h.id}')">${esc(T('common.del'))}</button>
           </div>
         </div>
         ${online ? `
-          <div class="faint num" style="font-size:12px">${esc(snap.hostInfo?.os || '')} Â· ${esc(snap.hostInfo?.cpu || '')} Â· ${snap.hostInfo?.cores || 0} cores</div>
+          <div class="faint num" style="font-size:12px">${esc(snap.hostInfo?.os || '')} · ${esc(snap.hostInfo?.cpu || '')} · ${snap.hostInfo?.cores || 0} ${esc(T('hosts.cores'))}</div>
           ${gpus.length ? `<div class="faint" style="font-size:12px">GPU: ${gpus.map(g => g.names.join(', ')).join(' | ')}</div>` : ''}
-        ` : `<div class="faint">${snap?.error || 'Offline'}</div>`}
+        ` : `<div class="faint">${esc(snap?.error || T('ui.offline'))}</div>`}
       </div>
     `
   }
   return `<div class="content-inner">
-    <div style="display:flex;justify-content:flex-end"><button class="btn primary" onclick="window._showAddHost()">+ Add Server</button></div>
-    <div class="cards-grid">${cards || '<div class="card"><div class="empty"><b>No servers</b><span class="faint">Add a server to manage</span></div></div>'}</div>
+    <div style="display:flex;justify-content:flex-end"><button class="btn primary" onclick="window._showAddHost()">+ ${esc(T('hosts.add'))}</button></div>
+    <div class="cards-grid">${cards || `<div class="card"><div class="empty"><b>${esc(T('hosts.empty'))}</b><span class="faint">${esc(T('hosts.emptyHint'))}</span></div></div>`}</div>
   </div>`
 }
 
@@ -727,15 +803,24 @@ async function loadSettingsData() {
   }
 }
 
+function daemonLabel() {
+  const map = { running: 'set.running', stopped: 'set.stopped' }
+  return T(map[state.daemonStatus] || 'ui.unknown')
+}
+
+function languageOptions() {
+  return state.languages.map(l => `<option value="${esc(l.code)}" ${l.code === state.lang ? 'selected' : ''}>${esc(l.name)}</option>`).join('')
+}
+
 function modeBtn(mode, cur, fn) {
-  return `<button class="btn sm ${cur === mode ? 'primary' : ''}" onclick="${fn}">${esc(mode)}</button>`
+  return `<button class="btn sm ${cur === mode ? 'primary' : ''}" onclick="${fn}">${esc(T('run.' + mode))}</button>`
 }
 
 function renderSettings() {
   const di = state.daemonInfo
   const found = di?.found
-  const exe = di?.exe || 'Not found'
-  const dataDir = di?.dataDir || 'N/A'
+  const exe = di?.exe || T('ui.notFound')
+  const dataDir = di?.dataDir || T('ui.na')
   const hint = di?.hint || ''
 
   let hwCards = ''
@@ -750,12 +835,12 @@ function renderSettings() {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px">
           <div class="faint">OS</div><div class="num">${esc(hi.os || '?')} ${esc(hi.osVersion || '')}</div>
           <div class="faint">CPU</div><div class="num">${esc(hi.cpu || '?')}</div>
-          <div class="faint">Cores</div><div class="num">${hi.cores || 0}</div>
+          <div class="faint">${esc(T('ui.hwCores'))}</div><div class="num">${hi.cores || 0}</div>
           <div class="faint">FLOPS</div><div class="num">${fmtFlops(hi.flops)}</div>
           <div class="faint">RAM</div><div class="num">${fmtBytes(hi.memory || 0)}</div>
-          <div class="faint">Disk</div><div class="num">${fmtBytes(hi.diskTotal || 0)} total, ${fmtBytes(hi.diskFree || 0)} free</div>
+          <div class="faint">Disk</div><div class="num">${esc(T('ui.diskTotalFree', { t: fmtBytes(hi.diskTotal || 0), f: fmtBytes(hi.diskFree || 0) }))}</div>
         </div>
-        ${gpus ? `<div style="display:flex;flex-direction:column;gap:5px;margin-top:4px"><div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">GPUs</div>${gpus}</div>` : ''}
+        ${gpus ? `<div style="display:flex;flex-direction:column;gap:5px;margin-top:4px"><div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px">${esc(T('ui.gpus'))}</div>${gpus}</div>` : ''}
       </div>
     `
   }
@@ -768,22 +853,22 @@ function renderSettings() {
     const prefCount = Object.keys(state.prefs[h.id] || {}).length
     prefsCards += `
       <div class="card" style="display:flex;flex-direction:column;gap:10px">
-        <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(h.name)}</h3><span class="chip plain">${prefCount} override(s)</span></div>
+        <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(h.name)}</h3><span class="chip plain">${esc(T('ui.overrides', { n: prefCount }))}</span></div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
           ${modeBtn('always', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','always')`)}
           ${modeBtn('auto', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','auto')`)}
           ${modeBtn('never', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','never')`)}
-          <span class="faint" style="font-size:12px">Run mode</span>
+          <span class="faint" style="font-size:12px">${esc(T('ui.runMode'))}</span>
         </div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
           ${modeBtn('always', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','always')`)}
           ${modeBtn('auto', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','auto')`)}
           ${modeBtn('never', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','never')`)}
-          <span class="faint" style="font-size:12px">Network mode</span>
+          <span class="faint" style="font-size:12px">${esc(T('set.netTitle'))}</span>
         </div>
         <div class="row" style="gap:6px;flex-wrap:wrap">
-          <button class="btn sm" onclick="window._setClientOp('${h.id}','benchmarks','')">Run Benchmarks</button>
-          <button class="btn sm" onclick="window._openPrefs('${h.id}')">Edit Global Prefs</button>
+          <button class="btn sm" onclick="window._setClientOp('${h.id}','benchmarks','')">${esc(T('set.bench'))}</button>
+          <button class="btn sm" onclick="window._openPrefs('${h.id}')">${esc(T('ui.editPrefs'))}</button>
         </div>
       </div>
     `
@@ -792,15 +877,15 @@ function renderSettings() {
   const fleetHosts = state.hosts.filter(h => !h.demo)
   const fleetCard = fleetHosts.length > 0 ? `
     <div class="card" style="display:flex;flex-direction:column;gap:10px">
-      <div class="card-head"><h3 class="card-title" style="font-size:14px">Fleet-wide Control</h3><span class="chip plain">${fleetHosts.length} server(s)</span></div>
+      <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('ui.fleetControl'))}</h3><span class="chip plain">${esc(T('ui.nServers', { n: fleetHosts.length }))}</span></div>
       <div class="row" style="gap:8px;flex-wrap:wrap">
-        <button class="btn sm" onclick="window._setAllMode('setRunMode','always')">Run: always</button>
-        <button class="btn sm" onclick="window._setAllMode('setRunMode','auto')">Run: auto</button>
-        <button class="btn sm" onclick="window._setAllMode('setRunMode','never')">Run: never</button>
-        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','always')">Network: always</button>
-        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','auto')">Network: auto</button>
-        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','never')">Network: never</button>
-        <button class="btn sm" onclick="window._setAllMode('benchmarks','')">Benchmarks: all</button>
+        <button class="btn sm" onclick="window._setAllMode('setRunMode','always')">${esc(T('ui.runX', { m: T('run.always') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('setRunMode','auto')">${esc(T('ui.runX', { m: T('run.auto') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('setRunMode','never')">${esc(T('ui.runX', { m: T('run.never') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','always')">${esc(T('ui.netX', { m: T('run.always') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','auto')">${esc(T('ui.netX', { m: T('run.auto') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('setNetworkMode','never')">${esc(T('ui.netX', { m: T('run.never') }))}</button>
+        <button class="btn sm" onclick="window._setAllMode('benchmarks','')">${esc(T('ui.benchAll'))}</button>
       </div>
     </div>
   ` : ''
@@ -808,40 +893,44 @@ function renderSettings() {
   const about = state.about
   return `<div class="content-inner">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Local Client</h2></div>
+      <div class="card-head"><h2 class="card-title">${esc(T('set.localTitle'))}</h2></div>
       <div style="display:flex;flex-direction:column;gap:12px">
         <div class="row" style="gap:12px;flex-wrap:wrap">
           <span class="dot ${state.daemonStatus === 'running' ? 'on' : 'off'}"></span>
-          <span style="font-weight:700">Status: <span class="num">${esc(state.daemonStatus)}</span></span>
+          <span style="font-weight:700">${esc(T('ui.status'))}: <span class="num">${esc(daemonLabel())}</span></span>
         </div>
-        <div class="faint num" style="font-size:12px">Path: ${esc(exe)}</div>
-        <div class="faint num" style="font-size:12px">Data: ${esc(dataDir)}</div>
+        <div class="faint num" style="font-size:12px">${esc(T('ui.path'))}: ${esc(exe)}</div>
+        <div class="faint num" style="font-size:12px">${esc(T('ui.data'))}: ${esc(dataDir)}</div>
         ${hint ? `<div class="faint" style="font-size:12px">${esc(hint)}</div>` : ''}
         <div class="row" style="gap:8px;margin-top:6px">
-          <button class="btn primary" onclick="window._startDaemon()" ${!found ? 'disabled' : ''}>Start</button>
-          <button class="btn danger" onclick="window._stopDaemon()" ${!found ? 'disabled' : ''}>Stop</button>
+          <button class="btn primary" onclick="window._startDaemon()" ${!found ? 'disabled' : ''}>${esc(T('ui.start'))}</button>
+          <button class="btn danger" onclick="window._stopDaemon()" ${!found ? 'disabled' : ''}>${esc(T('ui.stop'))}</button>
         </div>
       </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2 class="card-title">${esc(T('set.lang'))}</h2></div>
+      <select class="select" id="lang-select" onchange="window._setLang(this.value)" aria-label="${esc(T('set.lang'))}">${languageOptions()}</select>
     </div>
     ${fleetCard}
-    ${prefsCards ? `<div class="section-title"><h2>Preferences</h2></div><div style="display:flex;flex-direction:column;gap:14px">${prefsCards}</div>` : ''}
-    ${hwCards ? `<div class="section-title"><h2>Hardware</h2></div><div class="cards-grid">${hwCards}</div>` : ''}
+    ${prefsCards ? `<div class="section-title"><h2>${esc(T('nav.prefs'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${prefsCards}</div>` : ''}
+    ${hwCards ? `<div class="section-title"><h2>${esc(T('ui.hardware'))}</h2></div><div class="cards-grid">${hwCards}</div>` : ''}
     <div class="card">
-      <div class="card-head"><h2 class="card-title">Notifications</h2></div>
+      <div class="card-head"><h2 class="card-title">${esc(T('set.notifT'))}</h2></div>
       <div style="display:flex;flex-direction:column;gap:10px">
-        <div class="faint" style="font-size:12px">Status: <span class="num">${esc(notifPermission)}</span></div>
+        <div class="faint" style="font-size:12px">${esc(T('ui.status'))}: <span class="num">${esc(notifPermission)}</span></div>
         <div class="row" style="gap:8px">
-          <button class="btn sm" onclick="window._requestNotifPermission()">Enable Desktop Notifications</button>
-          <button class="btn sm" onclick="window._testNotif()">Send Test</button>
+          <button class="btn sm" onclick="window._requestNotifPermission()">${esc(T('notif.enable'))}</button>
+          <button class="btn sm" onclick="window._testNotif()">${esc(T('ui.sendTest'))}</button>
         </div>
       </div>
     </div>
     <div class="card">
-      <div class="card-head"><h2 class="card-title">About</h2></div>
+      <div class="card-head"><h2 class="card-title">${esc(T('about.title'))}</h2></div>
       <div style="color:var(--text-soft)">
-        <p><b>${esc(about.name || 'Iris')} v${esc(about.version || '1.0.0')}</b> - Desktop Grid Manager</p>
-        <p>Built with Go + Wails - native WebView, no Electron</p>
-        <p>Coded by <b>Alperen Yavuz</b></p>
+        <p><b>${esc(about.name || 'Iris')} v${esc(about.version || '1.0.0')}</b> - ${esc(T('about.desc'))}</p>
+        <p>${esc(T('about.built'))}</p>
+        <p>${T('app.codedBy', { a: '<b>Alperen Yavuz</b>' })}</p>
         ${about.repo ? `<p class="faint"><a class="link" href="${jsq(about.repo)}" target="_blank">${esc(about.repo)}</a></p>` : ''}
       </div>
     </div>
@@ -856,15 +945,15 @@ function checkNotifications() {
     const name = host?.name || hid
     if (!prev) continue
     if (snap.online && !prev.online) {
-      new Notification('Iris', { body: `${name} is back online` })
+      new Notification(T('notif.title'), { body: T('ui.backOnline', { h: name }) })
     }
     if (!snap.online && prev.online) {
-      new Notification('Iris', { body: `${name} went offline` })
+      new Notification(T('notif.title'), { body: T('notif.offline', { h: name }) })
     }
     const errs = snap.totals?.errors || 0
     const perrs = prev.errors || 0
     if (errs > perrs) {
-      new Notification('Iris', { body: `${name}: ${errs - perrs} task(s) errored` })
+      new Notification(T('notif.title'), { body: T('ui.tasksErrored', { h: name, n: errs - perrs }) })
     }
   }
   prevSnaps = {}
@@ -874,6 +963,11 @@ function checkNotifications() {
 }
 
 window._setPage = setPage
+
+window._setLang = async (code) => {
+  await setLanguage(code, true)
+  render()
+}
 
 window._toggleTheme = () => {
   state.theme = state.theme === 'dark' ? 'light' : 'dark'
@@ -902,41 +996,52 @@ window._searchTasks = (q) => {
 window._taskOp = async (hostId, name, op) => {
   try {
     await api('TaskOp', hostId, name, op)
-    toast(`Task ${op}ed`, 'ok')
+    const done = { suspend: 'tasks.toastPause', resume: 'tasks.toastResume', abort: 'tasks.toastAbort' }
+    toast(T(done[op] || 'set.saved'), 'ok')
     await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Operation failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._projectOp = async (hostId, url, op) => {
-  if (op === 'detach' && !confirm('Detach from this project?')) return
+  if (op === 'detach') {
+    const proj = (state.snaps[hostId]?.projects || []).find(p => p.url === url)
+    const host = state.hosts.find(h => h.id === hostId)
+    const msg = `${T('proj.detachW', { p: proj?.name || url, h: host?.name || hostId })}
+${T('proj.detachN')}`
+    if (!confirm(msg)) return
+  }
   try {
     await api('ProjectOp', hostId, url, op)
-    toast(`Project ${op} completed`, 'ok')
+    const done = { update: 'proj.opUpdate', suspend: 'proj.opSuspend', resume: 'proj.opResume', nomorework: 'proj.opNoMore', allowmorework: 'proj.opAllow', detach: 'proj.opDetach' }
+    toast(T(done[op] || 'set.saved'), 'ok')
     await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Operation failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._transferOp = async (hostId, name, op) => {
   try {
     await api('TransferOp', hostId, name, op)
-    toast(`Transfer ${op}ed`, 'ok')
+    toast(T(op === 'retry' ? 'trns.toastRetry' : 'trns.toastAbort'), 'ok')
     await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Operation failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._setClientOp = async (hostId, op, mode) => {
   try {
     await api('ClientOp', hostId, op, mode)
-    toast(`${op} updated`, 'ok')
+    const msg = op === 'benchmarks' ? T('set.benchOk')
+      : op === 'setNetworkMode' ? T('set.netSet', { m: T('run.' + mode) })
+      : T('ui.runModeSet', { m: T('run.' + mode) })
+    toast(msg, 'ok')
     await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Operation failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
@@ -945,19 +1050,20 @@ window._setAllMode = async (op, mode) => {
     const failed = await api('ClientOpAll', op, mode)
     await refreshHosts()
     const names = Object.keys(failed || {})
-    if (!names.length) toast('Applied to all servers', 'ok')
-    else toast(`Failed on: ${names.slice(0, 3).join(', ')}${names.length > 3 ? 'â€¦' : ''}`, 'err')
+    if (!names.length) toast(T('cmd.appliedTo', { n: state.hosts.filter(h => !h.demo).length }), 'ok')
+    else toast(T('ui.failedOn', { names: names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '') }), 'err')
   } catch (e) {
-    toast(e.message || 'Operation failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._removeHost = async (id) => {
-  if (!confirm('Remove this server?')) return
+  const h = state.hosts.find(x => x.id === id)
+  if (!h || !confirm(T('hosts.removeB', { n: h.name, h: h.host }))) return
   await api('RemoveHost', id)
   delete state.snaps[id]
   await refreshHosts()
-  toast('Server removed', 'ok')
+  toast(T('hosts.removed', { h: h.name }), 'ok')
 }
 
 window._testHost = async (id) => {
@@ -965,9 +1071,9 @@ window._testHost = async (id) => {
   if (!h) return
   try {
     const ver = await api('TestHost', h.host, h.port, h.password)
-    toast(`Connected: v${ver}`, 'ok')
+    toast(T('hosts.testOk', { h: h.name, v: ver }), 'ok')
   } catch (e) {
-    toast(e.message || 'Connection failed', 'err')
+    toast(e.message || T('ui.connFailed'), 'err')
   }
 }
 
@@ -975,14 +1081,14 @@ window._showAddHost = () => {
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:420px">
-        <div class="modal-head"><h3>Add Server</h3><button class="btn icon" onclick="window._closeModal()">âœ•</button></div>
-        <div class="field"><label class="label">Name</label><input class="input" id="add-name" placeholder="My Server"></div>
-        <div class="field"><label class="label">Host</label><input class="input" id="add-host" placeholder="192.168.0.5"></div>
-        <div class="field"><label class="label">Port</label><input class="input num" id="add-port" value="31418"></div>
-        <div class="field"><label class="label">Password</label><input class="input" id="add-pass" type="password" placeholder="gui_rpc_auth.cfg password"></div>
+        <div class="modal-head"><h3>${esc(T('hosts.add'))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
+        <div class="field"><label class="label">${esc(T('hosts.name'))}</label><input class="input" id="add-name" placeholder="${esc(T('hosts.namePh'))}"></div>
+        <div class="field"><label class="label">${esc(T('hosts.addr'))}</label><input class="input" id="add-host" placeholder="${esc(T('hosts.addrPh'))}"></div>
+        <div class="field"><label class="label">${esc(T('hosts.portL'))}</label><input class="input num" id="add-port" value="31418"></div>
+        <div class="field"><label class="label">${esc(T('hosts.pass'))}</label><input class="input" id="add-pass" type="password" placeholder="${esc(T('hosts.passPh'))}"></div>
         <div class="modal-foot">
-          <button class="btn" onclick="window._closeModal()">Cancel</button>
-          <button class="btn primary" onclick="window._doAddHost()">Add</button>
+          <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
+          <button class="btn primary" onclick="window._doAddHost()">${esc(T('ui.add'))}</button>
         </div>
       </div>
     </div>
@@ -996,14 +1102,14 @@ window._showEditHost = (id) => {
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:420px">
-        <div class="modal-head"><h3>Edit Server</h3><button class="btn icon" onclick="window._closeModal()">âœ•</button></div>
-        <div class="field"><label class="label">Name</label><input class="input" id="edit-name" value="${jsq(h.name)}"></div>
-        <div class="field"><label class="label">Host</label><input class="input" id="edit-host" value="${jsq(h.host)}"></div>
-        <div class="field"><label class="label">Port</label><input class="input num" id="edit-port" value="${h.port}"></div>
-        <div class="field"><label class="label">Password</label><input class="input" id="edit-pass" type="password" value="${jsq(h.password)}" placeholder="gui_rpc_auth.cfg password"></div>
+        <div class="modal-head"><h3>${esc(T('hosts.edit'))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
+        <div class="field"><label class="label">${esc(T('hosts.name'))}</label><input class="input" id="edit-name" value="${jsq(h.name)}"></div>
+        <div class="field"><label class="label">${esc(T('hosts.addr'))}</label><input class="input" id="edit-host" value="${jsq(h.host)}"></div>
+        <div class="field"><label class="label">${esc(T('hosts.portL'))}</label><input class="input num" id="edit-port" value="${h.port}"></div>
+        <div class="field"><label class="label">${esc(T('hosts.pass'))}</label><input class="input" id="edit-pass" type="password" value="${jsq(h.password)}" placeholder="${esc(T('hosts.passPh'))}"></div>
         <div class="modal-foot">
-          <button class="btn" onclick="window._closeModal()">Cancel</button>
-          <button class="btn primary" onclick="window._doEditHost('${h.id}')">Save</button>
+          <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
+          <button class="btn primary" onclick="window._doEditHost('${h.id}')">${esc(T('hosts.save'))}</button>
         </div>
       </div>
     </div>
@@ -1016,22 +1122,22 @@ window._showAttachProject = () => {
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:500px">
-        <div class="modal-head"><h3>Attach Project</h3><button class="btn icon" onclick="window._closeModal()">âœ•</button></div>
-        <div class="field"><label class="label">Target Server</label><select class="select" id="attach-host">${hostOpts}</select></div>
-        <div class="field"><label class="label">Project URL</label><input class="input" id="attach-url" placeholder="https://einsteinathome.org"></div>
-        <div class="field"><label class="label">Authenticator</label><input class="input" id="attach-auth" placeholder="From account lookup"></div>
-        <div class="field"><label class="label">Display Name (optional)</label><input class="input" id="attach-name" placeholder="Custom name"></div>
+        <div class="modal-head"><h3>${esc(T('proj.newTitle'))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
+        <div class="field"><label class="label">${esc(T('proj.server'))}</label><select class="select" id="attach-host">${hostOpts}</select></div>
+        <div class="field"><label class="label">${esc(T('proj.url'))}</label><input class="input" id="attach-url" placeholder="${esc(T('proj.urlPh'))}"></div>
+        <div class="field"><label class="label">${esc(T('proj.key'))}</label><input class="input" id="attach-auth" placeholder="${esc(T('proj.keyPh'))}"></div>
+        <div class="field"><label class="label">${esc(T('ui.displayName'))}</label><input class="input" id="attach-name"></div>
         <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:13px">
-          <div class="faint" style="font-size:11px;margin-bottom:8px">Account Lookup</div>
-          <div class="field"><label class="label">Project URL</label><input class="input" id="lookup-url" placeholder="https://einsteinathome.org"></div>
-          <div class="field"><label class="label">Email</label><input class="input" id="lookup-email" type="email" placeholder="your@email.com"></div>
-          <div class="field"><label class="label">Password</label><input class="input" id="lookup-pass" type="password" placeholder="Account password"></div>
-          <button class="btn sm" onclick="window._doLookup()">Look Up Authenticator</button>
+          <div class="faint" style="font-size:11px;margin-bottom:8px">${esc(T('proj.lookup'))}</div>
+          <div class="field"><label class="label">${esc(T('proj.url'))}</label><input class="input" id="lookup-url" placeholder="${esc(T('proj.urlPh'))}"></div>
+          <div class="field"><label class="label">${esc(T('proj.email'))}</label><input class="input" id="lookup-email" type="email" placeholder="you@example.com"></div>
+          <div class="field"><label class="label">${esc(T('proj.pass'))}</label><input class="input" id="lookup-pass" type="password"></div>
+          <button class="btn sm" onclick="window._doLookup()">${esc(T('proj.getKey'))}</button>
           <div id="lookup-result" class="faint" style="font-size:11px;margin-top:6px"></div>
         </div>
         <div class="modal-foot">
-          <button class="btn" onclick="window._closeModal()">Cancel</button>
-          <button class="btn primary" onclick="window._doAttach()">Attach</button>
+          <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
+          <button class="btn primary" onclick="window._doAttach()">${esc(T('proj.attach'))}</button>
         </div>
       </div>
     </div>
@@ -1044,16 +1150,16 @@ window._doLookup = async () => {
   const email = $('#lookup-email')?.value || ''
   const pass = $('#lookup-pass')?.value || ''
   const result = $('#lookup-result')
-  if (!url || !email || !pass) { if (result) result.textContent = 'Fill in all fields'; return }
+  if (!url || !email || !pass) { if (result) result.textContent = T('proj.needLookup'); return }
   try {
     const auth = await api('LookupAccount', url, email, pass)
-    if (result) result.innerHTML = `<span style="color:var(--ok)">Found! <span class="num" style="user-select:all">${jsq(auth)}</span></span>`
+    if (result) result.innerHTML = `<span style="color:var(--ok)">${esc(T('proj.verified'))} <span class="num" style="user-select:all">${jsq(auth)}</span></span>`
     const authField = $('#attach-auth')
     if (authField) authField.value = auth
     const urlField = $('#attach-url')
     if (urlField && !urlField.value) urlField.value = url
   } catch (e) {
-    if (result) result.innerHTML = `<span style="color:var(--err)">${esc(e.message || 'Not found')}</span>`
+    if (result) result.innerHTML = `<span style="color:var(--err)">${esc(e.message || T('ui.notFound'))}</span>`
   }
 }
 
@@ -1062,21 +1168,21 @@ window._doAttach = async () => {
   const url = $('#attach-url')?.value
   const auth = $('#attach-auth')?.value
   const name = $('#attach-name')?.value || ''
-  if (!hostId || !url || !auth) { toast('Fill in all required fields', 'err'); return }
+  if (!hostId || !url || !auth) { toast(T('proj.needAttach'), 'err'); return }
   try {
     await api('Attach', hostId, url, auth, name)
     state.modal = null
     await refreshHosts()
-    toast('Project attached', 'ok')
+    toast(T('proj.attaching'), 'ok')
   } catch (e) {
-    toast(e.message || 'Attach failed', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._closeModal = () => { state.modal = null; render() }
 
 window._doAddHost = async () => {
-  const name = $('#add-name')?.value || 'Unnamed'
+  const name = $('#add-name')?.value || T('ui.unnamed')
   const host = $('#add-host')?.value || 'localhost'
   const port = parseInt($('#add-port')?.value) || 31418
   const pass = $('#add-pass')?.value || ''
@@ -1084,14 +1190,14 @@ window._doAddHost = async () => {
     await api('AddHost', name, host, port, pass)
     state.modal = null
     await refreshHosts()
-    toast('Server added', 'ok')
+    toast(T('hosts.added'), 'ok')
   } catch (e) {
-    toast(e.message || 'Failed to add server', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._doEditHost = async (id) => {
-  const name = $('#edit-name')?.value || 'Unnamed'
+  const name = $('#edit-name')?.value || T('ui.unnamed')
   const host = $('#edit-host')?.value || 'localhost'
   const port = parseInt($('#edit-port')?.value) || 31418
   const pass = $('#edit-pass')?.value || ''
@@ -1099,9 +1205,9 @@ window._doEditHost = async (id) => {
     await api('UpdateHost', id, name, host, port, pass)
     state.modal = null
     await refreshHosts()
-    toast('Server updated', 'ok')
+    toast(T('hosts.updated'), 'ok')
   } catch (e) {
-    toast(e.message || 'Failed to update server', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
@@ -1114,14 +1220,14 @@ window._openPrefs = async (hostId) => {
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:540px">
-        <div class="modal-head"><h3>Global Preferences â€” ${esc(h.name)}</h3><button class="btn icon" onclick="window._closeModal()">âœ•</button></div>
-        <div class="faint" style="font-size:12px;margin-bottom:10px">One <code>key=value</code> per line. Empty value clears a setting. Read-only, proving ground for advanced users.</div>
+        <div class="modal-head"><h3>${esc(T('ui.globalPrefs', { name: h.name }))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
+        <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
         <div class="modal-foot">
-          <button class="btn" onclick="window._resetPrefs('${hostId}')">Reset to defaults</button>
+          <button class="btn" onclick="window._resetPrefs('${hostId}')">${esc(T('ui.resetDefaults'))}</button>
           <div style="flex:1"></div>
-          <button class="btn" onclick="window._closeModal()">Cancel</button>
-          <button class="btn primary" onclick="window._savePrefs('${hostId}')">Save</button>
+          <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
+          <button class="btn primary" onclick="window._savePrefs('${hostId}')">${esc(T('hosts.save'))}</button>
         </div>
       </div>
     </div>
@@ -1143,19 +1249,21 @@ window._savePrefs = async (hostId) => {
   try {
     await api('SetPrefs', hostId, fields)
     state.modal = null
-    toast('Preferences saved', 'ok')
+    toast(T('set.saved'), 'ok')
     await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Failed to save preferences', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._resetPrefs = async (hostId) => {
   try {
     await api('SetPrefs', hostId, [])
-    toast('Preferences reset to defaults', 'ok')
+    state.modal = null
+    toast(T('set.cleared'), 'ok')
+    await refreshHosts()
   } catch (e) {
-    toast(e.message || 'Failed to reset preferences', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
@@ -1164,9 +1272,9 @@ window._startDaemon = async () => {
     await api('StartDaemon')
     state.daemonStatus = await api('GetDaemonStatus')
     render()
-    toast('Client started', 'ok')
+    toast(T('set.localStarted'), 'ok')
   } catch (e) {
-    toast(e.message || 'Failed to start', 'err')
+    toast(e.message || T('set.localFailed'), 'err')
   }
 }
 
@@ -1175,26 +1283,26 @@ window._stopDaemon = async () => {
     await api('StopDaemon')
     state.daemonStatus = await api('GetDaemonStatus')
     render()
-    toast('Client stopped', 'ok')
+    toast(T('set.localStopped'), 'ok')
   } catch (e) {
-    toast(e.message || 'Failed to stop', 'err')
+    toast(e.message || T('ui.opFailed'), 'err')
   }
 }
 
 window._requestNotifPermission = async () => {
-  if (!('Notification' in window)) { toast('Notifications not supported', 'err'); return }
+  if (!('Notification' in window)) { toast(T('ui.notifUnsupported'), 'err'); return }
   const perm = await Notification.requestPermission()
   notifPermission = perm
   render()
-  if (perm === 'granted') toast('Notifications enabled', 'ok')
-  else toast('Notifications denied', 'info')
+  if (perm === 'granted') toast(T('ui.notifEnabled'), 'ok')
+  else toast(T('notif.denied'), 'info')
 }
 
 window._testNotif = () => {
   if (notifPermission === 'granted') {
-    new Notification('Iris', { body: 'Notifications are working' })
+    new Notification(T('notif.title'), { body: T('ui.notifWorking') })
   } else {
-    toast('Enable notifications first', 'info')
+    toast(T('ui.notifFirst'), 'info')
   }
 }
 
@@ -1208,12 +1316,17 @@ async function init() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && state.modal) window._closeModal()
   })
+  await loadLanguage()
   render()
   if (window.runtime?.EventsOn) {
     window.runtime.EventsOn('notice', (n) => {
       const kind = n?.kind || ''
-      const body = n?.body || 'Task notice'
-      const title = n?.title || 'Iris'
+      const h = n?.hostName || ''
+      const body = kind === 'deadline' ? T('notif.dl', { n: n.arg || '' })
+        : kind === 'error' ? T('ui.tasksErrored', { h, n: n.count || 1 })
+        : kind === 'offline' ? T('notif.offline', { h })
+        : (n?.body || T('ui.taskNotice'))
+      const title = T('notif.title')
       if (kind === 'deadline' || kind === 'error') toast(body, 'err')
       else if (kind === 'offline') toast(body, 'info')
       if (notifPermission === 'granted') new Notification(title, { body })

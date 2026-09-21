@@ -63,6 +63,53 @@ func Available() []string {
 	return append([]string{}, langOrder...)
 }
 
+// Language pairs a code with the language's own name for pickers.
+type Language struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+var nativeNames = map[string]string{
+	"en": "English", "tr": "Türkçe", "de": "Deutsch", "fr": "Français", "es": "Español",
+	"it": "Italiano", "pt": "Português", "ru": "Русский", "ja": "日本語",
+}
+
+// Languages lists every supported language in display order.
+func Languages() []Language {
+	out := make([]Language, 0, len(langOrder))
+	for _, c := range langOrder {
+		out = append(out, Language{Code: c, Name: nativeNames[c]})
+	}
+	return out
+}
+
+// Has reports whether code is a supported language.
+func Has(code string) bool {
+	mu.RLock()
+	defer mu.RUnlock()
+	_, ok := allLangs[code]
+	return ok
+}
+
+// Dump returns every string for code. Keys the language does not translate
+// fall back to English, so the result is always complete.
+func Dump(code string) map[string]string {
+	mu.RLock()
+	defer mu.RUnlock()
+	out := map[string]string{}
+	if en, ok := allLangs["en"]; ok {
+		for k, v := range en.data {
+			out[k] = v
+		}
+	}
+	if l, ok := allLangs[code]; ok && code != "en" {
+		for k, v := range l.data {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func T(key string, args ...interface{}) string {
 	mu.RLock()
 	l := cur

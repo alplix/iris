@@ -3,6 +3,7 @@
 import {main} from '../models';
 import {time} from '../models';
 import {app} from '../models';
+import {i18n} from '../models';
 
 export function AddHost(arg1:string,arg2:string,arg3:number,arg4:string):Promise<main.HostCfgJSON>;
 
@@ -32,7 +33,13 @@ export function GetDiskUsage(arg1:string):Promise<app.DiskInfo>;
 
 export function GetHistory(arg1:string):Promise<Array<app.HistPoint>>;
 
+export function GetHostInfo():Promise<Record<string, any>>;
+
 export function GetHosts():Promise<Array<main.HostCfgJSON>>;
+
+export function GetLanguage():Promise<string>;
+
+export function GetLanguages():Promise<Array<i18n.Language>>;
 
 export function GetPrefs(arg1:string):Promise<Record<string, string>>;
 
@@ -40,9 +47,11 @@ export function GetSnapshot(arg1:string):Promise<app.Snapshot>;
 
 export function GetStats(arg1:string):Promise<Array<app.StatSeries>>;
 
-export function GetXferHistory(arg1:string):Promise<Array<app.XferPoint>>;
+export function GetTranslations(arg1:string):Promise<Record<string, string>>;
 
 export function GetVersion():Promise<Record<string, string>>;
+
+export function GetXferHistory(arg1:string):Promise<Array<app.XferPoint>>;
 
 export function LookupAccount(arg1:string,arg2:string,arg3:string):Promise<string>;
 
@@ -50,9 +59,11 @@ export function ProjColor(arg1:string):Promise<string>;
 
 export function ProjectOp(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function RefreshAll():Promise<number>;
+
 export function RemoveHost(arg1:string):Promise<void>;
 
-export function RefreshAll():Promise<number>;
+export function SetLanguage(arg1:string):Promise<void>;
 
 export function SetPrefs(arg1:string,arg2:Array<any>):Promise<void>;
 

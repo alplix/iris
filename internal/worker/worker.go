@@ -1,12 +1,16 @@
 package worker
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -27,11 +31,14 @@ type Engine struct {
 
 type Config struct {
 	MaxConcurrent int
-	DataDir       string
-	UserAgent     string
-	SlotTimeout   time.Duration
-	CheckpointSec int
-	MaxDiskUsage  int64
+	// MaxConcurrentFn, when set, is consulted every cycle and overrides
+	// MaxConcurrent so preference changes apply without a restart.
+	MaxConcurrentFn func() int
+	DataDir         string
+	UserAgent       string
+	SlotTimeout     time.Duration
+	CheckpointSec   int
+	MaxDiskUsage    int64
 }
 
 type StateAccessor interface {
@@ -204,6 +211,12 @@ func (e *Engine) runCycle() {
 	taskMode := e.state.GetTaskMode()
 	diskUsage := e.state.GetDiskUsage()
 	diskQuota := e.state.GetDiskQuota()
+	maxConcurrent := e.cfg.MaxConcurrent
+	if e.cfg.MaxConcurrentFn != nil {
+		if n := e.cfg.MaxConcurrentFn(); n > 0 {
+			maxConcurrent = n
+		}
+	}
 
 	results := e.state.GetResults()
 	running := 0
@@ -216,7 +229,7 @@ func (e *Engine) runCycle() {
 	}
 
 	for _, r := range results {
-		if r.State == StateNew && r.Suspended == 0 && running < e.cfg.MaxConcurrent {
+		if r.State == StateNew && r.Suspended == 0 && running < maxConcurrent {
 			if taskMode == 3 {
 				break
 			}
@@ -283,6 +296,12 @@ func (e *Engine) startTask(r ResultSnapshot) {
 func (e *Engine) downloadFiles(r ResultSnapshot) error {
 	for _, f := range r.Files {
 		dest := filepath.Join(r.Slot, f.Name)
+		if f.MD5 != "" && fileExists(dest) {
+			if ok, _ := md5Matches(dest, f.MD5); ok {
+				log.Printf("[Worker] %s already present and verified", f.Name)
+				continue
+			}
+		}
 		log.Printf("[Worker] Downloading %s (%.0f bytes)", f.Name, f.NBytes)
 		if f.URL != "" {
 			if err := e.dl.DownloadFileByURL(f.URL, dest); err != nil {
@@ -293,8 +312,31 @@ func (e *Engine) downloadFiles(r ResultSnapshot) error {
 				return fmt.Errorf("download %s: %w", f.Name, err)
 			}
 		}
+		if f.MD5 != "" {
+			ok, err := md5Matches(dest, f.MD5)
+			if err != nil {
+				return fmt.Errorf("verify %s: %w", f.Name, err)
+			}
+			if !ok {
+				os.Remove(dest)
+				return fmt.Errorf("verify %s: MD5 mismatch", f.Name)
+			}
+		}
 	}
 	return nil
+}
+
+func md5Matches(path, want string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), strings.TrimSpace(want)), nil
 }
 
 func (e *Engine) findExecutable(r ResultSnapshot) string {

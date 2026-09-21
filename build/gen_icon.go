@@ -1,4 +1,4 @@
-﻿//go:build ignore
+//go:build ignore
 
 package main
 
@@ -38,8 +38,8 @@ func main() {
 				}
 			}
 		}
-		for dy := -ry/3; dy <= ry/3; dy++ {
-			for dx := -rx/2; dx <= rx/2; dx++ {
+		for dy := -ry / 3; dy <= ry/3; dy++ {
+			for dx := -rx / 2; dx <= rx/2; dx++ {
 				if float64(dx*dx)/(float64(rx*rx/4))+float64(dy*dy)/(float64(ry*ry/9)) <= 1.0 {
 					set(img, cx+dx, cy+dy, w)
 				}
@@ -88,13 +88,14 @@ func encodeICO(pngData []byte) []byte {
 	binary.Write(buf, binary.LittleEndian, uint16(0))
 	binary.Write(buf, binary.LittleEndian, uint16(1))
 	binary.Write(buf, binary.LittleEndian, uint16(1))
+	// ICONDIRENTRY: width, height (0 = 256), colors, reserved, planes, bit
+	// depth, image size and the offset of the image data (6-byte ICONDIR +
+	// this 16-byte entry).
 	e := make([]byte, 16)
-	e[4] = 0
-	e[5] = 0
-	e[10] = 1
-	e[11] = 32
-	binary.LittleEndian.PutUint16(e[8:10], 1)
-	binary.LittleEndian.PutUint32(e[12:16], uint32(len(pngData)))
+	binary.LittleEndian.PutUint16(e[4:6], 1)
+	binary.LittleEndian.PutUint16(e[6:8], 32)
+	binary.LittleEndian.PutUint32(e[8:12], uint32(len(pngData)))
+	binary.LittleEndian.PutUint32(e[12:16], 22)
 	binary.Write(buf, binary.LittleEndian, e)
 	buf.Write(pngData)
 	return buf.Bytes()

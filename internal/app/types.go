@@ -226,6 +226,10 @@ func gpusOf(hi boinc.HostInfo, ocl []boinc.OpenCLProp) []GPU {
 	if it > 0 && len(hi.Coprocs.IntelGpuDeviceNames) > 0 {
 		out = append(out, GPU{Vendor: "Intel", Count: it, Names: hi.Coprocs.IntelGpuDeviceNames, VRAM: matchVram(ocl, hi.Coprocs.IntelGpuDeviceNames)})
 	}
+	ot := nonEmpty(hi.Coprocs.OtherGpuDeviceNames)
+	if ot > 0 && len(hi.Coprocs.OtherGpuDeviceNames) > 0 {
+		out = append(out, GPU{Vendor: "Other", Count: ot, Names: hi.Coprocs.OtherGpuDeviceNames, VRAM: matchVram(ocl, hi.Coprocs.OtherGpuDeviceNames)})
+	}
 	return out
 }
 

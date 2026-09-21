@@ -40,17 +40,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-npm-
 
+      # The manager package uses cgo (GTK/WebKit/appindicator), so vet and test
+      # need the headers as much as the final build does.
+      - name: Install GTK dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
+
       - name: Frontend build
         working-directory: frontend
         run: |
           npm install
           npm run build
 
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      # Ubuntu 24.04 only ships webkit2gtk-4.1, which Wails selects with this tag.
       - name: Go vet
-        run: go vet ./...
+        run: go vet -tags webkit2_41 ./...
 
       - name: Go test
-        run: go test ./... -count=1
+        run: go test -tags webkit2_41 ./... -count=1
 
       - name: Build daemon (irisd)
         run: go build ./cmd/irisd
@@ -58,10 +69,9 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
-      - name: Install GTK dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev
-
       - name: Wails build (linux/amd64 smoke test)
-        run: wails build -platform linux/amd64 -clean
+        run: wails build -platform linux/amd64 -clean -tags webkit2_41
+
+      # The bindings are committed; the build above regenerates them.
+      - name: Bindings are up to date
+        run: git -c core.fileMode=false diff --exit-code -- frontend/wailsjs

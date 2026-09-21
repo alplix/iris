@@ -80,6 +80,7 @@ type Coprocs struct {
 
 	IntelGpuDevCount    Num      `xml:"intel_gpu_dev_count"`
 	IntelGpuDeviceNames []string `xml:"intel_gpu_device_name"`
+	OtherGpuDeviceNames []string `xml:"other_gpu_device_name"`
 }
 
 type OpenCLProp struct {
@@ -171,6 +172,17 @@ type DailyStat struct {
 	Day          Num `xml:"day"`
 	TotalCredit  Num `xml:"total_credit"`
 	ExpavgCredit Num `xml:"expavg_credit"`
+
+	UserTotalCredit  Num `xml:"user_total_credit"`
+	UserExpavgCredit Num `xml:"user_expavg_credit"`
+	HostTotalCredit  Num `xml:"host_total_credit"`
+	HostExpavgCredit Num `xml:"host_expavg_credit"`
+}
+
+// Cumulative reports whether the entry carries BOINC's cumulative host/user
+// totals (as opposed to the legacy per-day increment layout).
+func (d DailyStat) Cumulative() bool {
+	return d.HostTotalCredit != 0 || d.UserTotalCredit != 0
 }
 
 type DailyXfer struct {
@@ -190,21 +202,38 @@ type DiskUsage struct {
 	Projects []DiskProject `xml:"project"`
 }
 
+type versionTriple struct {
+	Major   Num `xml:"major"`
+	Minor   Num `xml:"minor"`
+	Release Num `xml:"release"`
+}
+
+// VersionsReply covers both the <server_version> element that BOINC-compatible
+// clients answer with and the older <versions> form.
 type VersionsReply struct {
-	Versions struct {
-		Major   Num `xml:"major"`
-		Minor   Num `xml:"minor"`
-		Release Num `xml:"release"`
-	} `xml:"versions"`
+	Server   versionTriple `xml:"server_version"`
+	Versions versionTriple `xml:"versions"`
 }
 
 func ParseVersions(frame []byte) (string, error) {
-	var v VersionsReply
+	// The reply's root is <server_version> itself, so its fields land in the
+	// embedded triple; the nested forms cover other servers.
+	var v struct {
+		versionTriple
+		VersionsReply
+	}
 	if err := xml.Unmarshal(stripWrapper(frame), &v); err != nil {
 		return "", err
 	}
+	if v.versionTriple.Major != 0 || v.versionTriple.Minor != 0 || v.versionTriple.Release != 0 {
+		v.VersionsReply.Server = v.versionTriple
+	}
+	t := v.VersionsReply.Server
+	if t.Major == 0 && t.Minor == 0 && t.Release == 0 {
+		t = v.VersionsReply.Versions
+	}
 	parts := make([]string, 0, 3)
-	for _, n := range []float64{v.Versions.Major.F(), v.Versions.Minor.F(), v.Versions.Release.F()} {
+	for _, n := range []float64{t.Major.F(), t.Minor.F(), t.Release.F()} {
 		parts = append(parts, strconv.Itoa(int(n)))
 	}
 	return strings.Join(parts, "."), nil
@@ -212,6 +241,18 @@ func ParseVersions(frame []byte) (string, error) {
 
 func ParseInto(frame []byte, out any) error {
 	return xml.Unmarshal(stripWrapper(frame), out)
+}
+
+// ParseWrapped decodes replies whose top-level element is the list itself
+// (<msgs>, <file_transfers>, ...): it re-wraps the frame so that out can
+// address the reply with paths such as `msgs>msg`.
+func ParseWrapped(frame []byte, out any) error {
+	inner := stripWrapper(frame)
+	buf := make([]byte, 0, len(inner)+32)
+	buf = append(buf, "<reply>"...)
+	buf = append(buf, inner...)
+	buf = append(buf, "</reply>"...)
+	return xml.Unmarshal(buf, out)
 }
 
 func ParseOverride(frame []byte) map[string]string {

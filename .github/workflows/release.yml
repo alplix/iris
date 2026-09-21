@@ -21,9 +21,13 @@ permissions:
 
 jobs:
   build-windows:
-    name: Build windows/amd64
+    name: Build windows ${{ matrix.arch }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
 
@@ -46,35 +50,42 @@ jobs:
       - name: Build Iris compute client (irisd)
         run: |
           mkdir -p build/bin
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd.exe ./cmd/irisd
+          GOOS=windows GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd.exe ./cmd/irisd
 
       - name: Build (NSIS installer)
-        run: wails build -platform windows/amd64 -nsis -webview2 download
+        # Bindings are committed (CI checks they are current); generating them
+        # would need the Linux GTK/WebKit headers on this runner.
+        run: wails build -platform windows/${{ matrix.arch }} -nsis -webview2 download -skipbindings
 
       - name: Stage portable zip
         working-directory: build/bin
         run: |
-          mv iris.exe iris-windows-amd64.exe
-          mv irisd.exe irisd-windows-amd64.exe
-          zip -r ../../iris-windows-amd64.zip iris-windows-amd64.exe irisd-windows-amd64.exe
+          mv iris.exe iris-windows-${{ matrix.arch }}.exe
+          mv irisd.exe irisd-windows-${{ matrix.arch }}.exe
+          zip -r ../../iris-windows-${{ matrix.arch }}.zip iris-windows-${{ matrix.arch }}.exe irisd-windows-${{ matrix.arch }}.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: iris-windows-amd64
+          name: iris-windows-${{ matrix.arch }}
           if-no-files-found: error
           path: |
-            iris-windows-amd64.zip
-            build/bin/iris-amd64-installer.exe
+            iris-windows-${{ matrix.arch }}.zip
+            build/bin/iris-${{ matrix.arch }}-installer.exe
 
   build-linux:
     name: Build linux ${{ matrix.arch }}
-    runs-on: ubuntu-latest
+    # The GTK/WebKit build uses cgo, so arm64 is built natively, not cross-compiled.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
 
@@ -96,13 +107,14 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build
+        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41
+
+      # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
         run: |
           mkdir -p build/bin
           GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
-
-      - name: Build
-        run: wails build -platform linux/${{ matrix.arch }} -clean
 
       - name: Stage archive
         working-directory: build/bin
@@ -142,13 +154,14 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
+      - name: Build
+        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings
+
+      # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
         run: |
           mkdir -p build/bin
           GOOS=darwin GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
-
-      - name: Build
-        run: wails build -platform darwin/${{ matrix.arch }} -clean
 
       - name: Embed irisd into app bundle
         run: |

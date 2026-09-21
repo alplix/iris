@@ -55,6 +55,7 @@ type StateManager interface {
 	GetDiskUsage() int64
 	SetDiskUsage(v int64)
 	UpdateStats(success bool, cpuTime, gpuTime, credit float64)
+	UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64)
 	AddMessage(body, project string, pri int)
 	Save()
 }
@@ -213,7 +214,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	req := &Request{
 		Authenticator: ps.Authenticator,
 		HostCPID:      e.cfg.HostCPID,
-		Platform:      "x86_64-pc-windows-gnu",
+		Platform:      Platform(),
 		VersionNum:    802,
 		Timestamp:     float64(time.Now().Unix()),
 		TeamID:        ps.TeamID,
@@ -247,7 +248,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			CPUTime:        r.CPUTime,
 			ExitStatus:     r.ExitStatus,
 			State:          r.State,
-			Platform:       "x86_64-pc-windows-gnu",
+			Platform:       Platform(),
 			VersionNum:     800,
 			ReportDeadline: r.Deadline,
 		})
@@ -268,7 +269,14 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 
 	ps.LastRPC = time.Now()
-	ps.TotalCredit = reply.TotalCredit
+	userTotal, userAvg := reply.UserTotalCredit, reply.UserExpavgCredit
+	if userTotal == 0 {
+		userTotal, userAvg = reply.TotalCredit, reply.ExpAvgCredit
+	}
+	ps.TotalCredit = userTotal
+	if userTotal > 0 || reply.HostTotalCredit > 0 {
+		e.state.UpdateProjectCredit(ps.URL, userTotal, userAvg, reply.HostTotalCredit, reply.HostExpavgCredit)
+	}
 
 	if reply.ServerTime > 0 {
 		ps.ServerTime = reply.ServerTime
@@ -309,7 +317,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 
 	log.Printf("[Scheduler] RPC done for %s, credit=%.1f, got %d tasks, reported %d, removed %d",
-		ps.URL, reply.TotalCredit, len(reply.Results), len(reported), removed)
+		ps.URL, userTotal, len(reply.Results), len(reported), removed)
 }
 
 func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML) {

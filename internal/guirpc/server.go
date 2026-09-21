@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/md5"
+	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
@@ -71,6 +73,14 @@ func (s *Server) Start(addr string) error {
 	return nil
 }
 
+// Addr is the address the server is listening on ("" before Start).
+func (s *Server) Addr() string {
+	if s.listener == nil {
+		return ""
+	}
+	return s.listener.Addr().String()
+}
+
 func (s *Server) Stop() {
 	s.mu.Lock()
 	for c := range s.clients {
@@ -105,6 +115,7 @@ func (s *Server) handleClient(conn net.Conn) {
 
 	conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	r := bufio.NewReaderSize(conn, 64*1024)
+	sess := &session{}
 
 	for {
 		req, err := readRequest(r)
@@ -114,7 +125,7 @@ func (s *Server) handleClient(conn net.Conn) {
 		if len(req) == 0 {
 			continue
 		}
-		reply := s.dispatch(req)
+		reply := s.dispatch(sess, req)
 		conn.SetWriteDeadline(time.Now().Add(12 * time.Second))
 		conn.Write([]byte(reply))
 		conn.Write([]byte{ETX})
@@ -151,14 +162,25 @@ func readRequest(r *bufio.Reader) (string, error) {
 	return strings.TrimSpace(buf.String()), nil
 }
 
-func (s *Server) dispatch(request string) string {
+// session is the per-connection authentication state. Every command except
+// the handshake itself is refused until the peer has proven it knows the
+// password.
+type session struct {
+	nonce  string
+	authed bool
+}
+
+func (s *Server) dispatch(sess *session, request string) string {
 	req := strings.TrimSpace(request)
 
 	if strings.HasPrefix(req, "<auth1") {
-		return s.handleAuth1()
+		return s.handleAuth1(sess)
 	}
 	if strings.HasPrefix(req, "<auth2") {
-		return s.handleAuth2(req)
+		return s.handleAuth2(sess, req)
+	}
+	if !sess.authed {
+		return cxml.WrapError("unauthorized")
 	}
 	if strings.HasPrefix(req, "<exchange_versions") {
 		return cxml.WrapReply(`<server_version><major>1</major><minor>0</minor><release>0</release></server_version>`)
@@ -257,38 +279,36 @@ func (s *Server) dispatch(request string) string {
 	return cxml.WrapError("unknown command")
 }
 
-var (
-	nonceMu sync.Mutex
-	nonces  = map[string]time.Time{}
-)
-
-func (s *Server) handleAuth1() string {
-	nonce := fmt.Sprintf("%x", md5.Sum([]byte(fmt.Sprintf("%d", time.Now().UnixNano()))))
-	nonceMu.Lock()
-	nonces[nonce] = time.Now()
-	nonceMu.Unlock()
-	return cxml.WrapReply(fmt.Sprintf("<nonce>%s</nonce>", nonce))
+func newNonce() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(b[:])
 }
 
-func (s *Server) handleAuth2(req string) string {
+func (s *Server) handleAuth1(sess *session) string {
+	sess.nonce = newNonce()
+	sess.authed = false
+	return cxml.WrapReply(fmt.Sprintf("<nonce>%s</nonce>", sess.nonce))
+}
+
+func (s *Server) handleAuth2(sess *session, req string) string {
 	m := regexp.MustCompile(`(?s)<nonce_hash>(.*?)</nonce_hash>`).FindStringSubmatch(req)
 	if m == nil {
 		return cxml.WrapError("no nonce hash")
 	}
-	nonceMu.Lock()
-	defer nonceMu.Unlock()
-	for nonce, t := range nonces {
-		if time.Since(t) > 5*time.Minute {
-			delete(nonces, nonce)
-			continue
-		}
-		sum := md5.Sum(append([]byte(nonce), []byte(s.password)...))
-		if m[1] == hex.EncodeToString(sum[:]) {
-			delete(nonces, nonce)
-			return cxml.WrapReply("<authorized/>")
-		}
+	if sess.nonce == "" {
+		return cxml.WrapError("no nonce issued")
 	}
-	return cxml.WrapError("password rejected")
+	sum := md5.Sum([]byte(sess.nonce + s.password))
+	want := hex.EncodeToString(sum[:])
+	sess.nonce = ""
+	if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(m[1])), []byte(want)) != 1 {
+		return cxml.WrapError("password rejected")
+	}
+	sess.authed = true
+	return cxml.WrapReply("<authorized/>")
 }
 
 func (s *Server) wrapCall(data []byte, err error) string {

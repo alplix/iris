@@ -5,9 +5,9 @@ import (
 	"embed"
 	"os"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/alplix/iris/internal/product"
-	"github.com/getlantern/systray"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -23,54 +23,24 @@ var iconPNG []byte
 
 var wailsApp *App
 
+// quitting is set when the user picks Quit from the tray. Closing the window
+// only hides it to the tray, so this tells OnBeforeClose to let the app exit.
+var quitting atomic.Bool
+
 func main() {
+	// Wails and the tray share this thread: the Win32/GTK event loop that
+	// Wails runs also delivers the tray's messages, and Wails needs the
+	// thread to have COM initialised (WebView2).
 	runtime.LockOSThread()
-	systray.Run(onTrayReady, onTrayExit)
+	if !bindingsOnly {
+		// `wails generate module` only runs the app to read its API and needs
+		// no tray.
+		startTray()
+	}
+	startWails()
 }
 
-func onTrayReady() {
-	systray.SetIcon(iconPNG)
-	systray.SetTitle(product.Name)
-	systray.SetTooltip(product.Name + " - Grid Manager")
-
-	mShow := systray.AddMenuItem("Open "+product.Name, "Show main window")
-	mRefresh := systray.AddMenuItem("Refresh all servers", "Poll every configured server now")
-	mHide := systray.AddMenuItem("Hide to tray", "Hide the main window")
-	systray.AddSeparator()
-	mQuit := systray.AddMenuItem("Quit", "Quit "+product.Name)
-
-	mShow.Disable()
-	mHide.Disable()
-
-	go func() {
-		for {
-			select {
-			case <-mShow.ClickedCh:
-				if wailsApp != nil && wailsApp.ctx != nil {
-					wailsApp.showWindow()
-				}
-			case <-mHide.ClickedCh:
-				if wailsApp != nil && wailsApp.ctx != nil {
-					wailsApp.hideWindow()
-				}
-			case <-mRefresh.ClickedCh:
-				if wailsApp != nil {
-					wailsApp.RefreshAll()
-				}
-			case <-mQuit.ClickedCh:
-				systray.Quit()
-				os.Exit(0)
-			}
-		}
-	}()
-
-	go startWails(mShow, mHide)
-}
-
-func onTrayExit() {
-}
-
-func startWails(mShow, mHide *systray.MenuItem) {
+func startWails() {
 	wailsApp = NewApp()
 
 	err := wails.Run(&options.App{
@@ -93,9 +63,20 @@ func startWails(mShow, mHide *systray.MenuItem) {
 				}
 			},
 		},
-		OnStartup:  wailsApp.startup,
-		OnShutdown: wailsApp.shutdown,
+		OnStartup: func(ctx context.Context) {
+			wailsApp.startup(ctx)
+			trayWindowReady()
+		},
+		OnShutdown: func(ctx context.Context) {
+			wailsApp.shutdown(ctx)
+			stopTray()
+		},
+		// Returning true keeps the app running: closing the window only hides
+		// it to the tray (where there is one), unless the user chose Quit.
 		OnBeforeClose: func(ctx context.Context) bool {
+			if quitting.Load() || !hasTray {
+				return false
+			}
 			if wailsApp != nil {
 				wailsApp.hideWindow()
 			}
@@ -122,6 +103,4 @@ func startWails(mShow, mHide *systray.MenuItem) {
 		println("Error:", err.Error())
 		os.Exit(1)
 	}
-	mShow.Enable()
-	mHide.Enable()
 }

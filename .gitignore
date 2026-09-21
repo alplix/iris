@@ -22,3 +22,6 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# NSIS: downloaded WebView2 bootstrapper
+/build/windows/installer/tmp/

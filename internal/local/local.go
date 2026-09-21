@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/alplix/iris/internal/config"
-	"github.com/alplix/iris/internal/product"
 )
 
 type Info struct {
@@ -83,28 +82,16 @@ func (d *Daemon) PID() int {
 	return pid
 }
 
+// WriteConfig creates a default cc_config.xml, in the layout the client itself
+// reads, when none exists yet. An existing file is the user's and is left alone.
 func (d *Daemon) WriteConfig(version string) error {
 	if d.Config == "" {
 		return nil
 	}
-	dir := filepath.Dir(d.Config)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
+	if _, err := os.Stat(d.Config); err == nil {
+		return nil
 	}
-	userAgent := product.UserAgent()
-	xml := "<cc_config>\n" +
-		"  <log_flags/>\n" +
-		"  <dont_contact_ref_site/>\n" +
-		"  <user_agent>" + userAgent + "</user_agent>\n" +
-		"  <http_transfer_timeout>30</http_transfer_timeout>\n" +
-		"  <http_servers_busy_timeout>30</http_servers_busy_timeout>\n" +
-		"  <max_app_clients>64</max_app_clients>\n" +
-		"  <allow_remote_gui_rpc/>\n" +
-		"  <use_all_gpus/>\n" +
-		"  <report_results_early/>\n" +
-		"  <gpu_exclusive/>\n" +
-		"</cc_config>\n"
-	return os.WriteFile(d.Config, []byte(xml), 0o644)
+	return config.Save(config.Default(), d.Config)
 }
 
 func Detect() Info {

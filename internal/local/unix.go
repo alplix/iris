@@ -22,6 +22,8 @@ func statusByPID(pid int) DaemonStatus {
 
 func StartDetached(exe string) (*exec.Cmd, error) {
 	cmd := exec.Command(exe, "--daemon")
+	// Tells the client it already is the background copy.
+	cmd.Env = append(os.Environ(), "IRIS_DETACHED=1")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start failed: %w", err)

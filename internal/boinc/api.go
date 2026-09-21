@@ -29,7 +29,7 @@ func (c *Client) GetTransfers() ([]FileTransfer, error) {
 	var d struct {
 		T []FileTransfer `xml:"file_transfers>file_transfer"`
 	}
-	err = ParseInto(frame, &d)
+	err = ParseWrapped(frame, &d)
 	return d.T, err
 }
 
@@ -41,7 +41,7 @@ func (c *Client) GetCcStatus() (*CcStatus, error) {
 	var d struct {
 		S CcStatus `xml:"cc_status"`
 	}
-	err = ParseInto(frame, &d)
+	err = ParseWrapped(frame, &d)
 	return &d.S, err
 }
 
@@ -57,7 +57,7 @@ func (c *Client) GetMessages(after int) ([]Msg, error) {
 	var d struct {
 		M []Msg `xml:"msgs>msg"`
 	}
-	err = ParseInto(frame, &d)
+	err = ParseWrapped(frame, &d)
 	return d.M, err
 }
 
@@ -69,7 +69,7 @@ func (c *Client) GetStats() ([]ProjectStats, error) {
 	var d struct {
 		S []ProjectStats `xml:"statistics>project_statistics"`
 	}
-	err = ParseInto(frame, &d)
+	err = ParseWrapped(frame, &d)
 	return d.S, err
 }
 
@@ -81,7 +81,7 @@ func (c *Client) GetDailyXferHistory() ([]DailyXfer, error) {
 	var d struct {
 		X []DailyXfer `xml:"daily_xfers>dx"`
 	}
-	err = ParseInto(frame, &d)
+	err = ParseWrapped(frame, &d)
 	return d.X, err
 }
 
@@ -105,7 +105,15 @@ func (c *Client) GetPrefsOverride() (map[string]string, error) {
 	return ParseOverride(frame), nil
 }
 
+var prefKeyRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+
 func (c *Client) SetPrefsOverride(pairs [][2]string) error {
+	// Keys become XML element names, so anything else could inject markup.
+	for _, p := range pairs {
+		if !prefKeyRe.MatchString(p[0]) {
+			return fmt.Errorf("invalid preference name %q", p[0])
+		}
+	}
 	var b strings.Builder
 	b.WriteString("<set_global_prefs_override>\n<global_prefs_override>")
 	for _, p := range pairs {

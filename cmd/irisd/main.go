@@ -1,28 +1,39 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/xml"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
+	"github.com/alplix/iris/internal/boinc"
 	"github.com/alplix/iris/internal/cache"
 	"github.com/alplix/iris/internal/config"
 	"github.com/alplix/iris/internal/detect"
 	"github.com/alplix/iris/internal/guirpc"
+	"github.com/alplix/iris/internal/local"
+	"github.com/alplix/iris/internal/prefs"
 	"github.com/alplix/iris/internal/product"
 	"github.com/alplix/iris/internal/project"
 	"github.com/alplix/iris/internal/scheduler"
 	"github.com/alplix/iris/internal/state"
 	"github.com/alplix/iris/internal/worker"
 )
+
+// detachedEnv marks the background copy of the client started by --daemon.
+const detachedEnv = "IRIS_DETACHED"
 
 func guiRPCPort() int {
 	if v := os.Getenv("IRIS_GUI_RPC_PORT"); v != "" {
@@ -50,6 +61,10 @@ func main() {
 			stopDaemon()
 			return
 		case "--daemon", "-d":
+			if os.Getenv(detachedEnv) == "" {
+				detach()
+				return
+			}
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command: %s\n", os.Args[1])
 			printUsage()
@@ -57,6 +72,31 @@ func main() {
 		}
 	}
 	runDaemon()
+}
+
+// detach starts the client in the background and returns immediately.
+func detach() {
+	exe, err := os.Executable()
+	if err != nil {
+		fatal("cannot locate executable: %v", err)
+	}
+	cmd, err := local.StartDetached(exe)
+	if err != nil {
+		fatal("%v", err)
+	}
+	fmt.Printf("Iris client started in the background (pid %d).\n", cmd.Process.Pid)
+	fmt.Printf("Log: %s\n", filepath.Join(config.DataDir(), "irisd.log"))
+	cmd.Process.Release()
+}
+
+// redirectOutput sends the background client's console output to irisd.log.
+func redirectOutput(dataDir string) {
+	f, err := os.OpenFile(filepath.Join(dataDir, "irisd.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	os.Stdout, os.Stderr = f, f
+	log.SetOutput(f)
 }
 
 func banner() string {
@@ -83,6 +123,13 @@ func runDaemon() {
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fatal("cannot create data directory: %v", err)
 	}
+	if os.Getenv(detachedEnv) != "" {
+		redirectOutput(dataDir)
+	}
+
+	pidFile := filepath.Join(dataDir, "iris.pid")
+	os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0o644)
+	defer os.Remove(pidFile)
 
 	cfgPath := filepath.Join(dataDir, "cc_config.xml")
 	cfg, err := config.Load(cfgPath)
@@ -108,7 +155,7 @@ func runDaemon() {
 		fmt.Printf("Warning: could not load state: %v\n", err)
 	}
 
-	st.HostInfo = detectHostInfo()
+	st.HostInfo, st.OpenCLGpuProps = detectHostInfo()
 
 	fmt.Println(banner())
 	fmt.Println()
@@ -118,7 +165,7 @@ func runDaemon() {
 		fmt.Printf("RAM: %.1f GB\n", st.HostInfo.MNbytes/1073741824)
 	}
 	if st.HostInfo.DTotal > 0 {
-		fmt.Printf("Disk: %.1f GB / %.1f GB free\n", st.HostInfo.DTotal/1073741824, st.HostInfo.DFree/1073741824)
+		fmt.Printf("Disk: %.1f GB free of %.1f GB\n", st.HostInfo.DFree/1073741824, st.HostInfo.DTotal/1073741824)
 	}
 	for i, gpu := range st.HostInfo.GPUs {
 		fmt.Printf("GPU %d: %s\n", i, gpu)
@@ -134,7 +181,10 @@ func runDaemon() {
 	}
 
 	password := loadOrCreatePassword(dataDir)
-	handler := &clientHandler{state: st, cache: cacheMgr, dataDir: dataDir, cfg: cfg}
+	overrides := prefs.Open(dataDir)
+	handler := &clientHandler{state: st, cache: cacheMgr, dataDir: dataDir, cfg: cfg, prefs: overrides}
+	xfers := newTransferTracker(st)
+	handler.xfers = xfers
 	srv := guirpc.NewServer(handler, password)
 	if err := srv.Start(guiRPCAddr); err != nil {
 		fatal("GUI RPC server failed: %v", err)
@@ -146,6 +196,7 @@ func runDaemon() {
 
 	fmt.Printf("GUI RPC listening on %s\n", guiRPCAddr)
 	fmt.Println("Ready.")
+	os.Stdout.Sync()
 
 	schedEngine := scheduler.NewEngine(&stateAdapter{st}, &cacheAdapter{cacheMgr}, scheduler.EngineConfig{
 		SchedulerInterval: 60 * time.Second,
@@ -156,10 +207,12 @@ func runDaemon() {
 	})
 	schedEngine.Start()
 
-	workerEngine := worker.NewEngine(&stateWorkerAdapter{st}, &cacheAdapter{cacheMgr}, &projectAdapter{st}, &downloaderAdapter{dataDir: dataDir}, &downloaderAdapter{dataDir: dataDir}, worker.Config{
-		MaxConcurrent: runtime.NumCPU(),
-		DataDir:       dataDir,
-		UserAgent:     product.UserAgent(),
+	dl := &downloaderAdapter{dataDir: dataDir, xfers: xfers}
+	workerEngine := worker.NewEngine(&stateWorkerAdapter{st}, &cacheAdapter{cacheMgr}, &projectAdapter{st}, dl, dl, worker.Config{
+		MaxConcurrent:   runtime.NumCPU(),
+		MaxConcurrentFn: func() int { return overrides.MaxCPUs(runtime.NumCPU()) },
+		DataDir:         dataDir,
+		UserAgent:       product.UserAgent(),
 	})
 	workerEngine.Start()
 
@@ -177,8 +230,11 @@ func runDaemon() {
 	fmt.Println("Goodbye.")
 }
 
-func detectHostInfo() state.HostInfo {
-	specs := detect.Detect()
+func detectHostInfo() (state.HostInfo, []state.OpenCLProp) {
+	return buildHostInfo(detect.Detect())
+}
+
+func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 	hi := state.HostInfo{
 		OSName:    specs.OSName,
 		OSVersion: specs.OSVersion,
@@ -192,35 +248,69 @@ func detectHostInfo() state.HostInfo {
 		HostCPID:  specs.HostCPID,
 		CamVer:    product.Version,
 	}
+	var props []state.OpenCLProp
 	for _, g := range specs.GPUs {
 		hi.GPUs = append(hi.GPUs, g.Name)
+		lower := strings.ToLower(g.Vendor + " " + g.Name)
+		switch {
+		case strings.Contains(lower, "nvidia"):
+			hi.Coprocs.NvidiaDeviceNames = append(hi.Coprocs.NvidiaDeviceNames, g.Name)
+			hi.Coprocs.NvidiaDevCount++
+		case strings.Contains(lower, "amd") || strings.Contains(lower, "ati ") || strings.Contains(lower, "radeon") || strings.Contains(lower, "advanced micro"):
+			hi.Coprocs.AtiDeviceNames = append(hi.Coprocs.AtiDeviceNames, g.Name)
+			hi.Coprocs.AtiDevCount++
+		case strings.Contains(lower, "intel"):
+			hi.Coprocs.IntelGpuDeviceNames = append(hi.Coprocs.IntelGpuDeviceNames, g.Name)
+			hi.Coprocs.IntelGpuDevCount++
+		default:
+			hi.Coprocs.OtherGpuDeviceNames = append(hi.Coprocs.OtherGpuDeviceNames, g.Name)
+		}
+		if g.DedicatedMB > 0 {
+			props = append(props, state.OpenCLProp{Vendor: g.Vendor, Name: g.Name, GlobalMem: float64(g.DedicatedMB) * 1048576})
+		}
 	}
-	return hi
+	hi.Coprocs.Count = float64(len(specs.GPUs))
+	return hi, props
 }
 
+// loadOrCreatePassword returns the GUI RPC password, generating a random one
+// on first run. The file is owner-readable only.
 func loadOrCreatePassword(dataDir string) string {
 	fp := filepath.Join(dataDir, "gui_rpc_auth.cfg")
-	data, err := os.ReadFile(fp)
-	if err == nil {
-		p := strings.TrimSpace(string(data))
-		if p != "" {
+	if data, err := os.ReadFile(fp); err == nil {
+		if p := strings.TrimSpace(string(data)); p != "" {
+			os.Chmod(fp, 0o600)
 			return p
 		}
 	}
-	pass := fmt.Sprintf("iris_%d", syscall.Getpid())
-	os.WriteFile(fp, []byte(pass+"\n"), 0o644)
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		fatal("cannot generate RPC password: %v", err)
+	}
+	pass := hex.EncodeToString(b[:])
+	if err := os.WriteFile(fp, []byte(pass+"\n"), 0o600); err != nil {
+		fatal("cannot write %s: %v", fp, err)
+	}
 	return pass
 }
 
 func stopDaemon() {
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", guiRPCPort()), 3*time.Second)
-	if err != nil {
+	if !isDaemonRunning() {
 		fmt.Println("Iris client is not running.")
 		return
 	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(3 * time.Second))
-	conn.Write([]byte("<quit/>\n"))
+	pass := local.ReadPassword(config.DataDir())
+	c := boinc.NewClient("127.0.0.1", guiRPCPort(), pass)
+	defer c.Close()
+	if err := c.Connect(); err != nil {
+		fmt.Printf("Cannot reach the client: %v\n", err)
+		os.Exit(1)
+	}
+	if _, err := c.Call("<quit/>"); err != nil {
+		// The client closes the connection while shutting down.
+		fmt.Println("Stop signal sent.")
+		return
+	}
 	fmt.Println("Stop signal sent.")
 }
 
@@ -263,10 +353,13 @@ func fatal(format string, args ...any) {
 }
 
 type clientHandler struct {
-	state   *state.State
-	cache   *cache.Manager
-	dataDir string
-	cfg     *config.Config
+	state    *state.State
+	cache    *cache.Manager
+	dataDir  string
+	cfg      *config.Config
+	prefs    *prefs.Store
+	xfers    *transferTracker
+	benching atomic.Bool
 }
 
 func (h *clientHandler) GetState() ([]byte, error) {
@@ -276,8 +369,8 @@ func (h *clientHandler) GetState() ([]byte, error) {
 func (h *clientHandler) GetCcStatus() ([]byte, error) {
 	s := h.state.Snapshot()
 	return xml.MarshalIndent(struct {
-		XMLName xml.Name     `xml:"cc_status"`
-		Status  state.Status `xml:"cc_status"`
+		XMLName xml.Name `xml:"cc_status"`
+		state.Status
 	}{Status: s.Status}, "", "  ")
 }
 
@@ -298,30 +391,46 @@ func (h *clientHandler) GetTransfers() ([]byte, error) {
 	return xml.MarshalIndent(xferXML{X: s.Transfers}, "", "  ")
 }
 
+// GetStats reports each project's credit history in BOINC's
+// project_statistics layout (one entry per day, cumulative totals).
 func (h *clientHandler) GetStats() ([]byte, error) {
-	type dayXML struct {
-		Date         string  `xml:"date"`
-		Tasks        int     `xml:"tasks"`
-		TasksSuccess int     `xml:"tasks_success"`
-		TasksError   int     `xml:"tasks_error"`
-		TotalCPU     float64 `xml:"total_cpu"`
-		TotalGPU     float64 `xml:"total_gpu"`
-		CreditEarned float64 `xml:"credit_earned"`
+	type dailyXML struct {
+		Day        int64   `xml:"day"`
+		UserTotal  float64 `xml:"user_total_credit"`
+		UserExpavg float64 `xml:"user_expavg_credit"`
+		HostTotal  float64 `xml:"host_total_credit"`
+		HostExpavg float64 `xml:"host_expavg_credit"`
+	}
+	type projXML struct {
+		URL   string     `xml:"master_url"`
+		Daily []dailyXML `xml:"daily_statistics"`
 	}
 	type statsXML struct {
-		XMLName xml.Name `xml:"statistics"`
-		Days    []dayXML `xml:"day"`
+		XMLName xml.Name  `xml:"statistics"`
+		Project []projXML `xml:"project_statistics"`
 	}
 	s := h.state.Snapshot()
-	var days []dayXML
-	for _, d := range s.Stats {
-		days = append(days, dayXML{
-			Date: d.Date, Tasks: d.Tasks, TasksSuccess: d.TasksSuccess,
-			TasksError: d.TasksError, TotalCPU: d.TotalCPU, TotalGPU: d.TotalGPU,
-			CreditEarned: d.CreditEarned,
+	byURL := map[string]*projXML{}
+	var order []string
+	for _, c := range s.Credits {
+		p := byURL[c.URL]
+		if p == nil {
+			p = &projXML{URL: c.URL}
+			byURL[c.URL] = p
+			order = append(order, c.URL)
+		}
+		p.Daily = append(p.Daily, dailyXML{
+			Day:       c.Day * 86400,
+			UserTotal: c.UserTotal, UserExpavg: c.UserExpavg,
+			HostTotal: c.HostTotal, HostExpavg: c.HostExpavg,
 		})
 	}
-	return xml.MarshalIndent(statsXML{Days: days}, "", "  ")
+	var out statsXML
+	for _, u := range order {
+		sort.Slice(byURL[u].Daily, func(a, b int) bool { return byURL[u].Daily[a].Day < byURL[u].Daily[b].Day })
+		out.Project = append(out.Project, *byURL[u])
+	}
+	return xml.MarshalIndent(out, "", "  ")
 }
 
 func (h *clientHandler) GetDiskUsage() ([]byte, error) {
@@ -354,14 +463,38 @@ func (h *clientHandler) GetDiskUsage() ([]byte, error) {
 }
 
 func (h *clientHandler) GetDailyXferHistory() ([]byte, error) {
-	return []byte(`<daily_xfers/>`), nil
+	type dxXML struct {
+		When int64   `xml:"when"`
+		Up   float64 `xml:"up"`
+		Down float64 `xml:"down"`
+	}
+	type xfersXML struct {
+		XMLName xml.Name `xml:"daily_xfers"`
+		DX      []dxXML  `xml:"dx"`
+	}
+	var out xfersXML
+	for _, d := range h.state.Snapshot().Xfers {
+		out.DX = append(out.DX, dxXML{When: d.When*86400 + 43200, Up: d.Up, Down: d.Down})
+	}
+	sort.Slice(out.DX, func(a, b int) bool { return out.DX[a].When < out.DX[b].When })
+	return xml.MarshalIndent(out, "", "  ")
 }
 
 func (h *clientHandler) GetPrefsOverride() ([]byte, error) {
-	return []byte(`<global_prefs_override/>`), nil
+	return h.prefs.XML(), nil
 }
 
-func (h *clientHandler) SetPrefsOverride(pairs [][2]string) error { return nil }
+func (h *clientHandler) SetPrefsOverride(pairs [][2]string) error {
+	if err := h.prefs.Set(pairs); err != nil {
+		return err
+	}
+	if len(pairs) == 0 {
+		h.state.AddMessage("Global preferences reset to defaults", "", 1)
+	} else {
+		h.state.AddMessage("Global preferences updated", "", 1)
+	}
+	return nil
+}
 
 func (h *clientHandler) SetRunMode(mode string) error {
 	switch mode {
@@ -417,7 +550,23 @@ func (h *clientHandler) ProjectOp(url, op string) error {
 	return nil
 }
 
-func (h *clientHandler) FileTransferOp(name, op string) error { return nil }
+func (h *clientHandler) FileTransferOp(name, op string) error {
+	switch op {
+	case "abort":
+		if !h.xfers.Abort(name) {
+			return fmt.Errorf("no transfer named %q", name)
+		}
+		h.state.AddMessage(fmt.Sprintf("Transfer aborted: %s", name), "", 1)
+	case "retry":
+		if err := h.xfers.Retry(name); err != nil {
+			return err
+		}
+		h.state.AddMessage(fmt.Sprintf("Transfer queued for retry: %s", name), "", 1)
+	default:
+		return fmt.Errorf("unknown transfer operation %q", op)
+	}
+	return nil
+}
 
 func (h *clientHandler) ProjectAttach(url, auth, name string) error {
 	pd := project.NewDir(h.dataDir, url)
@@ -455,8 +604,21 @@ func (h *clientHandler) ProjectAttach(url, auth, name string) error {
 	return nil
 }
 
+// RunBenchmarks measures CPU throughput in the background and publishes the
+// result as the host's p_fpops, which the schedulers use to size work.
 func (h *clientHandler) RunBenchmarks() error {
+	if !h.benching.CompareAndSwap(false, true) {
+		return fmt.Errorf("benchmarks are already running")
+	}
 	h.state.AddMessage("Benchmarks started", "", 1)
+	go func() {
+		defer h.benching.Store(false)
+		ncpu := runtime.NumCPU()
+		flops := detect.Benchmark(ncpu, 3*time.Second)
+		h.state.SetPFlops(flops)
+		h.state.AddMessage(fmt.Sprintf("Benchmarks finished: %.1f GFLOPS across %d cores", flops/1e9, ncpu), "", 1)
+		h.state.Save()
+	}()
 	return nil
 }
 
@@ -535,6 +697,10 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 	}
 }
 
+func (a *stateAdapter) UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64) {
+	a.s.UpdateProjectCredit(url, userTotal, userExpavg, hostTotal, hostExpavg)
+}
+
 func (a *stateAdapter) GetNetworkMode() int  { return a.s.GetNetworkMode() }
 func (a *stateAdapter) GetDiskUsage() int64  { return a.s.GetDiskUsage() }
 func (a *stateAdapter) SetDiskUsage(v int64) { a.s.SetDiskUsage(v) }
@@ -573,20 +739,42 @@ func convertFiles(files []state.FileInfo) []worker.FileRef {
 	return out
 }
 
-func (a *stateWorkerAdapter) UpdateResult(name string, state int, fracDone float64, cpuTime float64, exitStatus int) {
+// UpdateResult records a task's progress. The worker's own state numbers are
+// not BOINC's, so this also fills the fields managers use to classify a task:
+// active_task marks it as running, and a failure always carries a non-zero
+// exit status.
+func (a *stateWorkerAdapter) UpdateResult(name string, st int, fracDone float64, elapsed float64, exitStatus int) {
 	a.s.Lock()
 	defer a.s.Unlock()
 	for i := range a.s.Results {
-		if a.s.Results[i].Name == name {
-			a.s.Results[i].State = state
-			a.s.Results[i].FractionDone = fracDone
-			a.s.Results[i].CurrentCPUTime = cpuTime
-			a.s.Results[i].ExitStatus = exitStatus
-			if state == worker.StateReady || state == worker.StateError {
-				a.s.Results[i].ReadyToReport = 1
-			}
-			return
+		r := &a.s.Results[i]
+		if r.Name != name {
+			continue
 		}
+		if st == worker.StateError && exitStatus == 0 {
+			exitStatus = worker.ExitComputeError
+		}
+		if st == worker.StateReady {
+			fracDone = 1
+		}
+		r.State = st
+		r.FractionDone = fracDone
+		r.CurrentCPUTime = elapsed
+		r.ElapsedTime = elapsed
+		r.ExitStatus = exitStatus
+		r.EstimatedCPUTimeRemaining = 0
+		if st == worker.StateCompute {
+			r.ActiveTask = 1
+			if fracDone > 0.001 && fracDone < 1 {
+				r.EstimatedCPUTimeRemaining = elapsed * (1 - fracDone) / fracDone
+			}
+		} else {
+			r.ActiveTask = 0
+		}
+		if st == worker.StateReady || st == worker.StateError {
+			r.ReadyToReport = 1
+		}
+		return
 	}
 }
 
@@ -632,20 +820,4 @@ func (a *projectAdapter) GetAuthInfo(projectURL string) (auth, name string, ok b
 		}
 	}
 	return "", "", false
-}
-
-type downloaderAdapter struct{ dataDir string }
-
-func (d *downloaderAdapter) DownloadFile(projectURL, filename, destPath string) error {
-	client := scheduler.NewClient(projectURL)
-	return client.DownloadFile(filename, destPath)
-}
-
-func (d *downloaderAdapter) DownloadFileByURL(rawURL, destPath string) error {
-	return scheduler.DownloadFileByURL(rawURL, destPath)
-}
-
-func (d *downloaderAdapter) UploadFile(projectURL, filePath string) error {
-	client := scheduler.NewClient(projectURL)
-	return client.UploadFile(filePath, "")
 }

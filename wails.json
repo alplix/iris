@@ -7,8 +7,8 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
-  "wailsjsdir": "./frontend/wailsjs",
-  "nsisType": "installer",
+  "wailsjsdir": "./frontend",
+  "nsisType": "multiple",
   "author": {
     "name": "Alperen Yavuz",
     "email": "xalplix@gmail.com"
