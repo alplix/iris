@@ -1215,7 +1215,6 @@ window._catPick = async (i) => {
   if (!p) return
   cat.sel = p; cat.cfg = null; cat.err = ''; cat.checking = true
   const url = $('#attach-url'); if (url) url.value = p.url
-  const lookup = $('#lookup-url'); if (lookup) lookup.value = p.url
   const name = $('#attach-name'); if (name && !name.value) name.placeholder = p.name
   renderCatalog(); renderCatalogDetail()
   // Ask the project's server the way the BOINC manager does: it proves the
@@ -1232,6 +1231,7 @@ window._catPick = async (i) => {
 window._showAttachProject = async () => {
   try { catalog = await api('GetProjectCatalog') || [] } catch (e) { catalog = [] }
   cat = { q: '', area: '', shown: [], sel: null, cfg: null, err: '', checking: false }
+  attachUseKey = false
   const hostOpts = state.hosts.map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('')
   const areas = [...new Set(catalog.map(p => p.area).filter(Boolean))].sort()
   const areaOpts = `<option value="">${esc(T('cat.allAreas'))}</option>` + areas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('')
@@ -1252,16 +1252,9 @@ window._showAttachProject = async () => {
         <div id="cat-detail" class="field"></div>
         <div class="faint" style="font-size:11px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">${esc(T('cat.custom'))}</div>
         <div class="field"><label class="label">${esc(T('proj.url'))}</label><input class="input" id="attach-url" placeholder="${esc(T('proj.urlPh'))}"></div>
-        <div class="field"><label class="label">${esc(T('proj.key'))}</label><input class="input" id="attach-auth" placeholder="${esc(T('proj.keyPh'))}"></div>
+        <div id="attach-auth-fields">${renderAttachAuthFields()}</div>
         <div class="field"><label class="label">${esc(T('ui.displayName'))}</label><input class="input" id="attach-name"></div>
-        <div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:13px">
-          <div class="faint" style="font-size:11px;margin-bottom:8px">${esc(T('proj.lookup'))}</div>
-          <div class="field"><label class="label">${esc(T('proj.url'))}</label><input class="input" id="lookup-url" placeholder="${esc(T('proj.urlPh'))}"></div>
-          <div class="field"><label class="label">${esc(T('proj.email'))}</label><input class="input" id="lookup-email" type="email" placeholder="you@example.com"></div>
-          <div class="field"><label class="label">${esc(T('proj.pass'))}</label><input class="input" id="lookup-pass" type="password"></div>
-          <button class="btn sm" onclick="window._doLookup()">${esc(T('proj.getKey'))}</button>
-          <div id="lookup-result" class="faint" style="font-size:11px;margin-top:6px"></div>
-        </div>
+        <div id="attach-status" class="faint" style="font-size:11px;min-height:14px;margin-bottom:2px"></div>
         <div class="modal-foot">
           <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
           <button class="btn primary" onclick="window._doAttach()">${esc(T('proj.attach'))}</button>
@@ -1274,37 +1267,66 @@ window._showAttachProject = async () => {
   renderCatalogDetail()
 }
 
-window._doLookup = async () => {
-  const url = $('#lookup-url')?.value || ''
-  const email = $('#lookup-email')?.value || ''
-  const pass = $('#lookup-pass')?.value || ''
-  const result = $('#lookup-result')
-  if (!url || !email || !pass) { if (result) result.textContent = T('proj.needLookup'); return }
-  try {
-    const auth = await api('LookupAccount', url, email, pass)
-    if (result) result.innerHTML = `<span style="color:var(--ok)">${esc(T('proj.verified'))} <span class="num" style="user-select:all">${jsq(auth)}</span></span>`
-    const authField = $('#attach-auth')
-    if (authField) authField.value = auth
-    const urlField = $('#attach-url')
-    if (urlField && !urlField.value) urlField.value = url
-  } catch (e) {
-    if (result) result.innerHTML = `<span style="color:var(--err)">${esc(e.message || T('ui.notFound'))}</span>`
+// The default (and recommended) way to attach is e-mail + password: it looks
+// up the account key and attaches in one step. An already-known account key
+// remains available for people who have it, one click away.
+let attachUseKey = false
+
+function renderAttachAuthFields() {
+  if (attachUseKey) {
+    return `
+      <div class="field"><label class="label">${esc(T('proj.key'))}</label><input class="input" id="attach-auth" placeholder="${esc(T('proj.keyPh'))}"></div>
+      <div class="faint" style="font-size:11px;margin:-8px 0 12px">${esc(T('proj.keyHint'))}</div>
+      <button type="button" class="btn sm" style="margin-bottom:13px" onclick="window._attachToggleKey()">${esc(T('proj.useEmailInstead'))}</button>
+    `
   }
+  return `
+    <div class="field"><label class="label">${esc(T('proj.email'))}</label><input class="input" id="attach-email" type="email" placeholder="you@example.com"></div>
+    <div class="field"><label class="label">${esc(T('proj.pass'))}</label><input class="input" id="attach-pass" type="password"></div>
+    <button type="button" class="btn sm" style="margin-bottom:13px" onclick="window._attachToggleKey()">${esc(T('proj.useKey'))}</button>
+  `
+}
+
+window._attachToggleKey = () => {
+  attachUseKey = !attachUseKey
+  const el = $('#attach-auth-fields')
+  if (el) el.innerHTML = renderAttachAuthFields()
+  const status = $('#attach-status')
+  if (status) status.innerHTML = ''
 }
 
 window._doAttach = async () => {
   const hostId = $('#attach-host')?.value
-  const url = $('#attach-url')?.value
-  const auth = $('#attach-auth')?.value
+  const url = ($('#attach-url')?.value || '').trim()
   const name = $('#attach-name')?.value || ''
-  if (!hostId || !url || !auth) { toast(T('proj.needAttach'), 'err'); return }
+  const status = $('#attach-status')
+  const fail = (msg) => { if (status) status.innerHTML = `<span style="color:var(--err)">${esc(msg)}</span>` }
+  if (!hostId || !url) { fail(T('proj.needAttach')); return }
+
+  let auth
+  if (attachUseKey) {
+    auth = ($('#attach-auth')?.value || '').trim()
+    if (!auth) { fail(T('proj.needKey')); return }
+  } else {
+    const email = ($('#attach-email')?.value || '').trim()
+    const pass = $('#attach-pass')?.value || ''
+    if (!email || !pass) { fail(T('proj.needLookup')); return }
+    if (status) status.innerHTML = `<span class="faint">${esc(T('proj.verifying'))}</span>`
+    try {
+      auth = await api('LookupAccount', url, email, pass)
+    } catch (e) {
+      fail(e.message || T('ui.notFound'))
+      return
+    }
+  }
+
   try {
     await api('Attach', hostId, url, auth, name)
     state.modal = null
     await refreshHosts()
     toast(T('proj.attaching'), 'ok')
   } catch (e) {
-    toast(e.message || T('ui.opFailed'), 'err')
+    fail(e.message || T('ui.opFailed'))
   }
 }
 
