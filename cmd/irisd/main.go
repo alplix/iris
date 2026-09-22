@@ -754,6 +754,10 @@ type stateWorkerAdapter struct{ s *state.State }
 func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 	a.s.RLock()
 	defer a.s.RUnlock()
+	shares := make(map[string]float64, len(a.s.Projects))
+	for _, p := range a.s.Projects {
+		shares[p.MasterURL] = p.ResourceShare
+	}
 	var out []worker.ResultSnapshot
 	for _, r := range a.s.Results {
 		out = append(out, worker.ResultSnapshot{
@@ -763,6 +767,7 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 			Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
 			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum,
 			Files: convertFiles(r.Files), Suspended: r.SuspendedViaGUI,
+			ResourceShare: shares[r.ProjectURL],
 		})
 	}
 	return out
