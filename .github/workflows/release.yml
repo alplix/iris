@@ -153,6 +153,47 @@ jobs:
           sudo apt-get install -y rpm
           rpm -qip iris-${{ matrix.arch }}.rpm
 
+      - name: Build AppImage
+        env:
+          # linuxdeploy's own asset names; there's no "amd64"/"arm64" build.
+          LINUXDEPLOY_ARCH: ${{ matrix.arch == 'amd64' && 'x86_64' || 'aarch64' }}
+        run: |
+          curl -L -o linuxdeploy.AppImage "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-${LINUXDEPLOY_ARCH}.AppImage"
+          curl -L -o linuxdeploy-plugin-gtk.sh "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
+          chmod +x linuxdeploy.AppImage linuxdeploy-plugin-gtk.sh
+          # GitHub-hosted runners have no FUSE, so run linuxdeploy extracted
+          # instead of as an AppImage.
+          ./linuxdeploy.AppImage --appimage-extract >/dev/null
+          mkdir -p AppDir/usr/bin
+          cp build/bin/iris AppDir/usr/bin/iris
+          cp build/bin/irisd AppDir/usr/bin/irisd
+          DEPLOY_GTK_VERSION=3 ./squashfs-root/AppRun \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/iris \
+            --desktop-file build/linux/iris.desktop \
+            --icon-file build/icon.png \
+            --plugin gtk \
+            --output appimage
+          mv Iris-*.AppImage iris-${{ matrix.arch }}.AppImage || mv Alperen*.AppImage iris-${{ matrix.arch }}.AppImage
+          chmod +x iris-${{ matrix.arch }}.AppImage
+
+      - name: Verify the AppImage's binary has no missing shared libraries
+        # A real run needs a display; this instead checks the same thing a
+        # missing-library crash would actually be caused by, without needing
+        # Xvfb in the release pipeline: every dynamic dependency of the
+        # bundled binary resolves against the AppImage's own bundled libs
+        # (or the base system libs every distro has), so "not found" would
+        # mean the AppImage is broken on a machine that lacks GTK/WebKit
+        # installed system-wide — precisely the case an AppImage exists for.
+        run: |
+          ./iris-${{ matrix.arch }}.AppImage --appimage-extract >/dev/null
+          missing=$(LD_LIBRARY_PATH="squashfs-root/usr/lib:$LD_LIBRARY_PATH" ldd squashfs-root/usr/bin/iris | grep "not found" || true)
+          if [ -n "$missing" ]; then
+            echo "$missing"
+            echo "::error::AppImage is missing shared libraries it needs to run"
+            exit 1
+          fi
+
       - name: Stage archive
         working-directory: build/bin
         run: |
@@ -169,6 +210,7 @@ jobs:
             iris-linux-${{ matrix.arch }}.tar.gz
             iris-${{ matrix.arch }}.deb
             iris-${{ matrix.arch }}.rpm
+            iris-${{ matrix.arch }}.AppImage
 
   build-darwin:
     name: Build darwin ${{ matrix.arch }}

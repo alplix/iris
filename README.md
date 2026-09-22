@@ -224,8 +224,10 @@ Download the latest release from the [Releases page](https://github.com/alplix/i
   Open the first time).
 - **Linux** — install `iris-amd64.deb` / `iris-arm64.deb` (Debian, Ubuntu and derivatives) or
   `iris-amd64.rpm` / `iris-arm64.rpm` (Fedora and derivatives); either pulls in GTK3 and WebKitGTK 4.1
-  automatically and adds a menu entry. Prefer no package manager? Extract `iris-linux-*.tar.gz` instead
-  (GTK3 + WebKitGTK 4.1 required, installed separately).
+  automatically and adds a menu entry. No package manager, or not on a Debian/Fedora-family distro?
+  Run `iris-amd64.AppImage` / `iris-arm64.AppImage` directly (`chmod +x` first) — it bundles GTK3 and
+  WebKitGTK itself. Prefer a plain folder? Extract `iris-linux-*.tar.gz` instead (GTK3 + WebKitGTK 4.1
+  required, installed separately).
 
 ## Getting started
 
@@ -286,7 +288,9 @@ Honest overview of what exists today.
 **Implemented and tested**
 
 - The manager and all of its pages; nine languages; installer and archives for six platforms plus the
-  client-only builds; **.deb and .rpm packages** for desktop Linux, built and dependency-verified in CI.
+  client-only builds; **.deb, .rpm and AppImage packages** for desktop Linux, built and verified in
+  CI (the .deb/.rpm by actually installing them; the AppImage by checking its bundled binary resolves
+  every shared library it needs, via `linuxdeploy` + its GTK plugin).
 - GUI RPC server and client, including authentication; the manager against Iris's own client and
   against simulated data. (Talking to a stock BOINC client uses the same protocol but has had far less
   testing — reports welcome.)
@@ -329,8 +333,9 @@ Honest overview of what exists today.
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.
-- An AppImage for Linux (.deb / .rpm are done), code signing, a tray icon on macOS (`getlantern/systray`
-  and Wails both register their own Cocoa app delegate, so the two cannot yet be linked into one binary).
+- Code signing for the Windows/macOS installers (needs a certificate we don't have), and a tray icon
+  on macOS (`getlantern/systray` and Wails both register their own Cocoa app delegate, so the two
+  cannot yet be linked into one binary).
 
 If one of these matters to you, open an issue — the order of the roadmap follows what people ask for.
 
