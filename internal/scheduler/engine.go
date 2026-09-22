@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -40,6 +41,10 @@ type ProjectState struct {
 	TeamID         int
 	HostID         int
 	Config         ProjectConfig
+	// SchedulerURLs caches what DiscoverSchedulerURL found on the project's
+	// master page, so it is scraped only once per run rather than before
+	// every single contact.
+	SchedulerURLs []string
 }
 
 type ProjectConfig struct {
@@ -236,6 +241,28 @@ func (e *Engine) getOrCreateProject(info ProjectInfo) *ProjectState {
 	return ps
 }
 
+// schedulerURLFor returns the address to actually contact for ps, caching a
+// successful discovery on ps so later contacts skip re-fetching the master
+// page. A project's master_url is essentially never also its scheduler's
+// address on a real, actively-run project (see DiscoverSchedulerURL); if
+// discovery fails for any reason, the old "cgi-bin/scheduler" convention is
+// tried as a last resort rather than giving up before ever attempting a
+// contact.
+func (e *Engine) schedulerURLFor(ps *ProjectState, cli *Client) string {
+	if len(ps.SchedulerURLs) > 0 {
+		return ps.SchedulerURLs[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	urls, err := cli.DiscoverSchedulerURL(ctx)
+	if err != nil || len(urls) == 0 {
+		log.Printf("[Scheduler] Could not discover a scheduler address for %s, trying the conventional path instead: %v", ps.URL, err)
+		return cli.GetSchedulerURL()
+	}
+	ps.SchedulerURLs = urls
+	return urls[0]
+}
+
 func (e *Engine) doRPC(ps *ProjectState) {
 	log.Printf("[Scheduler] RPC to %s", ps.URL)
 	// Whatever happens below, this contact has now been attempted — clear
@@ -245,6 +272,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	cli := NewClient(ps.URL)
 	cli.SetAuth(ps.Authenticator)
+	cli.SetSchedulerURL(e.schedulerURLFor(ps, cli))
 
 	hostInfo := e.state.GetHostInfo()
 

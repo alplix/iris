@@ -116,6 +116,41 @@ func TestDoRPCLogsAContactConfirmationOnQuietSuccess(t *testing.T) {
 	}
 }
 
+// TestDoRPCDiscoversTheRealSchedulerURLFromTheMasterPage reproduces the
+// exact real-world failure this was written for: a project (like
+// Einstein@Home) whose scheduler lives at a completely different address
+// than "<master_url>/cgi-bin/scheduler" — that conventional path 404s here
+// on purpose, so the test only passes if discovery, not the guess, is what
+// found the real one.
+func TestDoRPCDiscoversTheRealSchedulerURLFromTheMasterPage(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/cgi-bin/scheduler", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r) // the naive guess must NOT be what makes this pass
+	})
+	mux.HandleFunc("/unconventional/cgi", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<scheduler_reply></scheduler_reply>`))
+	})
+	var realSchedulerURL string
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<html><head>
+  <!-- Project scheduling servers -->
+  <link rel="boinc_scheduler" href="` + realSchedulerURL + `">
+</head></html>`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	realSchedulerURL = srv.URL + "/unconventional/cgi"
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "Real Project"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	msgs := fs.Messages()
+	if len(msgs) == 0 || !strings.Contains(msgs[0], "Contacted") {
+		t.Errorf("expected a successful contact via the discovered scheduler URL, got %v", msgs)
+	}
+}
+
 // TestForceOneContactsAProjectNotYetTrackedByAPeriodicCycle guards
 // RequestUpdate's real-world use case: a project attached moments ago,
 // before any periodic runCycle has discovered it into e.projects yet.

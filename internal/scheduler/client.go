@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,9 +21,10 @@ import (
 )
 
 type Client struct {
-	projectURL string
-	authToken  string
-	httpClient *http.Client
+	projectURL   string
+	authToken    string
+	schedulerURL string
+	httpClient   *http.Client
 }
 
 type Request struct {
@@ -162,8 +164,73 @@ func (c *Client) baseURL() string {
 	return scheme + host + path
 }
 
+// GetSchedulerURL returns the URL a scheduler request is sent to: whatever
+// SetSchedulerURL last set (normally the result of DiscoverSchedulerURL), or
+// else the old "cgi-bin/scheduler" convention as a last-resort guess for
+// projects whose master page publishes nothing.
 func (c *Client) GetSchedulerURL() string {
+	if c.schedulerURL != "" {
+		return c.schedulerURL
+	}
 	return c.baseURL() + "/cgi-bin/scheduler"
+}
+
+// SetSchedulerURL overrides the address a scheduler request is sent to.
+func (c *Client) SetSchedulerURL(url string) {
+	c.schedulerURL = url
+}
+
+var (
+	linkSchedulerRe = regexp.MustCompile(`(?is)<link[^>]+rel=["']boinc_scheduler["'][^>]*href=["']([^"']+)["']`)
+	tagSchedulerRe  = regexp.MustCompile(`(?is)<scheduler>\s*([^<\s]+)\s*</scheduler>`)
+)
+
+// DiscoverSchedulerURL fetches the project's master page and scrapes the
+// scheduler address(es) it publishes there, since a real, actively-run
+// project's scheduler is almost never simply "<master_url>/cgi-bin/scheduler"
+// — Einstein@Home's, for example, is on an entirely different subdomain and
+// path. BOINC projects publish it either as a
+// <link rel="boinc_scheduler" href="..."> tag, or the older
+// <scheduler>...</scheduler> tag (often inside an HTML comment — a plain
+// substring search finds it either way). A reply's own <redirect> elements
+// (not implemented here) are meant to keep this list current after the
+// first successful contact; this covers the common case of the very first
+// one.
+func (c *Client) DiscoverSchedulerURL(ctx context.Context) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL()+"/", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", product.UserAgent())
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var urls []string
+	seen := map[string]bool{}
+	add := func(u string) {
+		u = strings.TrimSpace(u)
+		if u != "" && !seen[u] {
+			urls = append(urls, u)
+			seen[u] = true
+		}
+	}
+	for _, m := range linkSchedulerRe.FindAllSubmatch(body, -1) {
+		add(string(m[1]))
+	}
+	for _, m := range tagSchedulerRe.FindAllSubmatch(body, -1) {
+		add(string(m[1]))
+	}
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no scheduler address published on the project's master page")
+	}
+	return urls, nil
 }
 
 func (c *Client) GetFileURL(filename string) string {
