@@ -52,17 +52,57 @@ type Request struct {
 }
 
 type HostInfoXML struct {
-	XMLName   xml.Name `xml:"host_info"`
-	OsName    string   `xml:"os_name"`
-	OsVersion string   `xml:"os_version"`
-	PVendor   string   `xml:"p_vendor"`
-	PModel    string   `xml:"p_model"`
-	PNcpus    int      `xml:"p_ncpus"`
-	PFlops    float64  `xml:"p_fpops"`
-	MNbytes   float64  `xml:"m_nbytes"`
-	DFree     float64  `xml:"d_free"`
-	DTotal    float64  `xml:"d_total"`
-	ConnType  int      `xml:"conn_type"`
+	XMLName   xml.Name    `xml:"host_info"`
+	OsName    string      `xml:"os_name"`
+	OsVersion string      `xml:"os_version"`
+	PVendor   string      `xml:"p_vendor"`
+	PModel    string      `xml:"p_model"`
+	PNcpus    int         `xml:"p_ncpus"`
+	PFlops    float64     `xml:"p_fpops"`
+	MNbytes   float64     `xml:"m_nbytes"`
+	DFree     float64     `xml:"d_free"`
+	DTotal    float64     `xml:"d_total"`
+	ConnType  int         `xml:"conn_type"`
+	Coprocs   *CoprocsXML `xml:"coprocs"`
+}
+
+// CoprocsXML is a host_info's GPU section, exactly as the reference client
+// writes it (lib/coproc.cpp's COPROC_NVIDIA::write_xml /
+// COPROC_ATI::write_xml): a nil pointer omits the whole <coprocs> element,
+// matching a GPU-less host sending nothing rather than an empty tag.
+type CoprocsXML struct {
+	XMLName xml.Name       `xml:"coprocs"`
+	CUDA    *CoprocCudaXML `xml:"coproc_cuda"`
+	ATI     *CoprocAtiXML  `xml:"coproc_ati"`
+}
+
+// CoprocCudaXML advertises the host's NVIDIA GPU(s) as one aggregate entry
+// (BOINC assumes a homogeneous group per vendor). PeakFlops is deliberately
+// left at 0 — Iris has no GPU compute benchmark, and a fabricated number
+// would feed directly into a real project's work-fetch and deadline sizing,
+// exactly the class of bug internal/scheduler's own CPU work-fetch fix this
+// same session was about; projects fall back to their own default estimate
+// for the plan class when it's absent.
+type CoprocCudaXML struct {
+	XMLName    xml.Name `xml:"coproc_cuda"`
+	Count      int      `xml:"count"`
+	Name       string   `xml:"name"`
+	HaveCUDA   int      `xml:"have_cuda"`
+	HaveOpenCL int      `xml:"have_opencl"`
+	PeakFlops  float64  `xml:"peak_flops,omitempty"`
+}
+
+// CoprocAtiXML is the AMD/ATI equivalent of CoprocCudaXML. HaveCAL is left
+// at 0 (unknown) since Iris only detects the device, not the AMD compute
+// driver stack; HaveOpenCL is still advertised since that's what most
+// AMD-targeting BOINC plan classes actually check for.
+type CoprocAtiXML struct {
+	XMLName    xml.Name `xml:"coproc_ati"`
+	Count      int      `xml:"count"`
+	Name       string   `xml:"name"`
+	HaveCAL    int      `xml:"have_cal"`
+	HaveOpenCL int      `xml:"have_opencl"`
+	PeakFlops  float64  `xml:"peak_flops,omitempty"`
 }
 
 type ResultXML struct {

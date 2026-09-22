@@ -211,6 +211,24 @@ func TestRPCHostInfoListsGPUs(t *testing.T) {
 	}
 }
 
+// TestStateAdapterGetHostInfoCarriesGPUsToTheScheduler guards the wiring
+// between hardware detection and the scheduler's GPU work request: a
+// detected NVIDIA GPU must reach scheduler.HostInfoSnapshot, not just the
+// manager-facing snapshot TestRPCHostInfoListsGPUs already covers.
+func TestStateAdapterGetHostInfoCarriesGPUsToTheScheduler(t *testing.T) {
+	r := newRig(t)
+	r.st.HostInfo, _ = buildHostInfo(detect.Specs{
+		GPUs: []detect.GPU{{Name: "NVIDIA GeForce RTX 4090", Vendor: "NVIDIA", DedicatedMB: 24576}},
+	})
+	hi := (&stateAdapter{r.st}).GetHostInfo()
+	if hi.NvidiaCount != 1 || hi.NvidiaName != "NVIDIA GeForce RTX 4090" {
+		t.Errorf("scheduler-facing host info = %+v, want NvidiaCount=1 NvidiaName=%q", hi, "NVIDIA GeForce RTX 4090")
+	}
+	if hi.AtiCount != 0 {
+		t.Errorf("AtiCount = %d, want 0 for a host with no AMD GPU", hi.AtiCount)
+	}
+}
+
 func TestTaskStatusAsSeenByManager(t *testing.T) {
 	r := newRig(t)
 	r.st.AddProject(state.Project{Name: "P", MasterURL: "https://p.example"})

@@ -86,12 +86,15 @@ type HostInfoSnapshot struct {
 	DFree     float64
 	DTotal    float64
 	HostCPID  string
-	GPUs      []GPUSnapshot
-}
 
-type GPUSnapshot struct {
-	Name   string
-	Vendor string
+	// Coprocessor fields for GPU work requests. BOINC groups a host's GPUs
+	// of the same vendor into one aggregate <coproc_cuda>/<coproc_ati>
+	// element (count + one representative name), not one element per
+	// device — see matchAppVersion's neighbor, buildCoprocsXML.
+	NvidiaCount int
+	NvidiaName  string
+	AtiCount    int
+	AtiName     string
 }
 
 type ProjectInfo struct {
@@ -343,6 +346,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			DFree:     hostInfo.DFree,
 			DTotal:    hostInfo.DTotal,
 			ConnType:  3,
+			Coprocs:   buildCoprocsXML(hostInfo),
 		},
 		CoreClientVer:   product.UserAgent(),
 		WorkReqSeconds:  workReqSecs,
@@ -522,6 +526,25 @@ func matchAppVersion(appVersions []AppVersionXML, rr ReplyResult) (AppVersionXML
 		return appVersions[0], true
 	}
 	return AppVersionXML{}, false
+}
+
+// buildCoprocsXML turns the host's detected GPUs into the <coprocs> block a
+// scheduler reads to decide whether to offer GPU app_versions at all. It
+// returns nil (omitting the element entirely) for a host with no GPU of a
+// vendor BOINC recognizes here, matching how a real GPU-less host's request
+// looks on the wire.
+func buildCoprocsXML(hi HostInfoSnapshot) *CoprocsXML {
+	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 {
+		return nil
+	}
+	c := &CoprocsXML{}
+	if hi.NvidiaCount > 0 {
+		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: hi.NvidiaName, HaveCUDA: 1, HaveOpenCL: 1}
+	}
+	if hi.AtiCount > 0 {
+		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: hi.AtiName, HaveOpenCL: 1}
+	}
+	return c
 }
 
 func detectGPUFromResult(rr ReplyResult) bool {

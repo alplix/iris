@@ -21,8 +21,9 @@ machine in your fleet — local and remote — from one window.
 
 > **Status — please read.** Iris is young. The manager is complete, and the client's plumbing
 > (scheduler requests, file transfers, GUI RPC, credit and statistics, preferences, hardware
-> detection) is implemented and tested. It can now download and run a project's **real** application
-> (an experimental, off-by-default setting — see below), but not yet with a sandbox or GPU work. See
+> detection) is implemented and tested. It can now download and run a project's **real** application,
+> including on a GPU (an experimental, off-by-default setting — see below), but not yet with a
+> sandbox or a real GPU compute benchmark. See
 > [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris is a manager for
 > your machines and a foundation for the client, not a drop-in replacement for the BOINC client.
 
@@ -127,7 +128,10 @@ never squeeze out CPU work and the other way round:
 ```
 
 > The separation covers *where work lives and how much room it gets*. Actually **fetching** GPU work
-> from a project needs GPU information in the scheduler request, which is on the roadmap.
+> from a project needs GPU information in the scheduler request — see
+> [Status and roadmap](#status-and-roadmap): this is now implemented, with the same "no real
+> benchmark, best-effort device selection" caveats as the experimental real-application execution
+> above.
 
 ## AI Assistant
 
@@ -310,13 +314,18 @@ Honest overview of what exists today.
   falls back to the BOINC API's own "standalone" behavior rather than getting live checkpoint/suspend
   callbacks through it). It is off by default; turn it on per host from Settings → a host's Global
   Preferences, where the risk is stated next to the switch.
+- **Requesting GPU work.** A detected NVIDIA or AMD GPU is now advertised in the scheduler request
+  (`<coprocs>`, matching the reference client's own `lib/coproc.cpp` layout), so projects can actually
+  offer GPU app_versions instead of never sending any. Two honest gaps remain, both because Iris has
+  no CUDA/OpenCL driver bindings (`irisd` stays a dependency-free static binary): `peak_flops` is left
+  unmeasured (0) rather than fabricated, so a project sizes GPU work using its own default estimate for
+  the plan class instead of Iris's; and device selection always assumes a single GPU at index 0
+  (`gpu_device_num` in `init_data.xml`, plus `CUDA_VISIBLE_DEVICES`/`GPU_DEVICE_ORDINAL`), so a
+  multi-GPU host's extra devices sit idle. Covered by real application execution's same experimental,
+  off-by-default toggle above — GPU tasks are only ever downloaded and run once that's on.
 
 **Not implemented yet**
 
-- **Requesting GPU work**: GPU information is not sent in scheduler requests, so projects will not
-  send GPU tasks. GPUs are detected and shown, and the work areas are separate, but nothing computes
-  on them yet — deferred until real application execution (above) landed, since GPU work would have
-  been unusable before that.
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.
