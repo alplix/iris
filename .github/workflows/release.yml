@@ -54,8 +54,11 @@ jobs:
 
       - name: Build (NSIS installer)
         # Bindings are committed (CI checks they are current); generating them
-        # would need the Linux GTK/WebKit headers on this runner.
-        run: wails build -platform windows/${{ matrix.arch }} -nsis -webview2 download -skipbindings
+        # would need the Linux GTK/WebKit headers on this runner. The Tilvar
+        # key is baked into the manager only — irisd never links this package.
+        env:
+          TILVAR_API_KEY: ${{ secrets.TILVAR_API_KEY }}
+        run: wails build -platform windows/${{ matrix.arch }} -nsis -webview2 download -skipbindings -ldflags "-X github.com/alplix/iris/internal/tilvar.APIKey=$TILVAR_API_KEY"
 
       - name: Stage portable zip
         working-directory: build/bin
@@ -110,7 +113,10 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Build
-        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41
+        # The Tilvar key is baked into the manager only — irisd never links this package.
+        env:
+          TILVAR_API_KEY: ${{ secrets.TILVAR_API_KEY }}
+        run: wails build -platform linux/${{ matrix.arch }} -clean -tags webkit2_41 -ldflags "-X github.com/alplix/iris/internal/tilvar.APIKey=$TILVAR_API_KEY"
 
       # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
@@ -157,7 +163,10 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${{ env.WAILS_VERSION }}
 
       - name: Build
-        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings
+        # The Tilvar key is baked into the manager only — irisd never links this package.
+        env:
+          TILVAR_API_KEY: ${{ secrets.TILVAR_API_KEY }}
+        run: wails build -platform darwin/${{ matrix.arch }} -clean -skipbindings -ldflags "-X github.com/alplix/iris/internal/tilvar.APIKey=$TILVAR_API_KEY"
 
       # After the Wails build: `-clean` empties build/bin.
       - name: Build Iris compute client (irisd)
