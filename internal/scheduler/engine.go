@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -10,12 +11,13 @@ import (
 )
 
 type Engine struct {
-	state    StateManager
-	cache    CacheManager
-	projects map[string]*ProjectState
-	mu       sync.RWMutex
-	stop     chan struct{}
-	cfg      EngineConfig
+	state       StateManager
+	cache       CacheManager
+	projects    map[string]*ProjectState
+	mu          sync.RWMutex
+	stop        chan struct{}
+	forceUpdate chan string
+	cfg         EngineConfig
 }
 
 type EngineConfig struct {
@@ -57,6 +59,7 @@ type StateManager interface {
 	UpdateStats(success bool, cpuTime, gpuTime, credit float64)
 	UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64)
 	AddMessage(body, project string, pri int)
+	SetProjectSchedPending(url string, pending bool)
 	Save()
 }
 
@@ -133,11 +136,26 @@ func NewEngine(state StateManager, cache CacheManager, cfg EngineConfig) *Engine
 		cfg.MaxResultsPerRPC = 8
 	}
 	return &Engine{
-		state:    state,
-		cache:    cache,
-		projects: make(map[string]*ProjectState),
-		stop:     make(chan struct{}),
-		cfg:      cfg,
+		state:       state,
+		cache:       cache,
+		projects:    make(map[string]*ProjectState),
+		stop:        make(chan struct{}),
+		forceUpdate: make(chan string, 8),
+		cfg:         cfg,
+	}
+}
+
+// RequestUpdate asks the engine to contact url's scheduler as soon as
+// possible, bypassing the normal per-project rate limit — this is what the
+// "Update" button in the manager triggers. It never blocks or runs the RPC
+// itself: the request is handed to the engine's own loop goroutine, so it
+// can never race with a periodic cycle already in progress.
+func (e *Engine) RequestUpdate(url string) {
+	select {
+	case e.forceUpdate <- url:
+	default:
+		// Already full of pending requests; a periodic cycle is imminent
+		// regardless (at most cfg.SchedulerInterval away).
 	}
 }
 
@@ -159,7 +177,22 @@ func (e *Engine) loop() {
 		select {
 		case <-ticker.C:
 			e.runCycle()
+		case url := <-e.forceUpdate:
+			e.forceOne(url)
 		case <-e.stop:
+			return
+		}
+	}
+}
+
+// forceOne contacts a single project's scheduler right away, on behalf of
+// RequestUpdate. It looks the project up fresh from state rather than only
+// e.projects, so a project updated moments after being attached — before
+// any periodic cycle has had a chance to discover it — is still found.
+func (e *Engine) forceOne(url string) {
+	for _, info := range e.state.GetProjects() {
+		if info.URL == url {
+			e.doRPC(e.getOrCreateProject(info))
 			return
 		}
 	}
@@ -205,6 +238,10 @@ func (e *Engine) getOrCreateProject(info ProjectInfo) *ProjectState {
 
 func (e *Engine) doRPC(ps *ProjectState) {
 	log.Printf("[Scheduler] RPC to %s", ps.URL)
+	// Whatever happens below, this contact has now been attempted — clear
+	// any "waiting for an update" flag so the UI never shows it stuck
+	// forever; a failure is reported as a message instead, below.
+	e.state.SetProjectSchedPending(ps.URL, false)
 
 	cli := NewClient(ps.URL)
 	cli.SetAuth(ps.Authenticator)
@@ -257,6 +294,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	reply, err := cli.SendRequest(req)
 	if err != nil {
 		log.Printf("[Scheduler] RPC failed for %s: %v", ps.URL, err)
+		e.state.AddMessage(fmt.Sprintf("Couldn't reach %s: %v", ps.URL, err), ps.URL, 3)
 		ps.LastRPC = time.Now()
 		return
 	}
@@ -318,6 +356,13 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	log.Printf("[Scheduler] RPC done for %s, credit=%.1f, got %d tasks, reported %d, removed %d",
 		ps.URL, userTotal, len(reply.Results), len(reported), removed)
+	// The server's own reply.Message (already logged above) usually explains
+	// itself; a quiet, successful contact otherwise leaves no trace at all,
+	// making it impossible to tell "never tried" apart from "tried, nothing
+	// to do" — so a plain contact confirmation is always logged.
+	if reply.Message == "" {
+		e.state.AddMessage(fmt.Sprintf("Contacted %s: %d new task(s)", ps.URL, len(reply.Results)), ps.URL, 1)
+	}
 }
 
 func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML) {
