@@ -1,6 +1,8 @@
 package boinc
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -170,19 +172,39 @@ func (c *Client) ProjectAttach(url, authenticator, name string) error {
 	return err
 }
 
-var authRe = regexp.MustCompile(`(?s)<authenticator>(.*?)</authenticator>`)
+var (
+	authRe   = regexp.MustCompile(`(?s)<authenticator>\s*(.*?)\s*</authenticator>`)
+	errNumRe = regexp.MustCompile(`(?s)<error_num>\s*(-?\d+)\s*</error_num>`)
+	errMsgRe = regexp.MustCompile(`(?s)<error_msg>\s*(.*?)\s*</error_msg>`)
+)
+
+// boincPasswdHash is the password hash BOINC servers expect everywhere a
+// client authenticates with an email + password instead of an account key:
+// md5(password + lowercase(email)). The client never sends the plaintext
+// password over the network.
+func boincPasswdHash(password, email string) string {
+	sum := md5.Sum([]byte(password + strings.ToLower(email)))
+	return hex.EncodeToString(sum[:])
+}
 
 func LookupAccount(baseURL, email, password string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := strings.TrimSuffix(baseURL, "/") + "/lookup_account.php?email_addr=" + escapeQuery(email) + "&passwd=" + escapeQuery(password)
+	url := strings.TrimSuffix(baseURL, "/") + "/lookup_account.php?email_addr=" +
+		escapeQuery(email) + "&passwd_hash=" + boincPasswdHash(password, email)
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("account lookup failed: %w", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if m := authRe.FindStringSubmatch(string(body)); m != nil && strings.TrimSpace(m[1]) != "" {
-		return strings.TrimSpace(m[1]), nil
+	if m := authRe.FindStringSubmatch(string(body)); m != nil && m[1] != "" {
+		return m[1], nil
+	}
+	if m := errMsgRe.FindStringSubmatch(string(body)); m != nil && m[1] != "" {
+		return "", fmt.Errorf("%s (%s)", m[1], baseURL)
+	}
+	if m := errNumRe.FindStringSubmatch(string(body)); m != nil {
+		return "", fmt.Errorf("account not found or wrong password on %s (error %s)", baseURL, m[1])
 	}
 	return "", fmt.Errorf("account not found or wrong password on %s", baseURL)
 }
