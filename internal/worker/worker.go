@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -90,6 +91,11 @@ type ResultSnapshot struct {
 	Files         []FileRef
 	Suspended     int
 	MaxElapSec    float64
+	// ResourceShare is the owning project's configured share (BOINC's
+	// convention: 100 if never set), used to divide free slots fairly
+	// across multiple attached projects instead of a FIFO that can starve
+	// every project but whichever queued its tasks first.
+	ResourceShare float64
 }
 
 type FileRef struct {
@@ -236,23 +242,126 @@ func (e *Engine) runCycle() {
 		}
 	}
 
+	if taskMode == 3 {
+		return
+	}
+	if diskQuota > 0 && diskUsage >= diskQuota {
+		log.Printf("[Worker] Disk quota reached (%d/%d), skipping downloads", diskUsage, diskQuota)
+		return
+	}
+	slots := maxConcurrent - running
+	if slots <= 0 {
+		return
+	}
+
+	var eligible []ResultSnapshot
 	for _, r := range results {
-		if r.State == StateNew && r.Suspended == 0 && running < maxConcurrent {
-			if taskMode == 3 {
+		if r.State != StateNew || r.Suspended != 0 {
+			continue
+		}
+		if e.cache.Full(r.GPU) {
+			e.warnCacheFull(r.GPU)
+			continue // the other class of work may still have room
+		}
+		eligible = append(eligible, r)
+	}
+
+	for _, r := range pickTasksToStart(eligible, slots) {
+		go e.startTask(r)
+	}
+}
+
+// pickTasksToStart chooses up to `slots` more results to start from
+// eligible (already filtered to queued, not suspended, and not blocked by a
+// full cache), dividing them fairly across projects by resource share
+// instead of a flat FIFO — otherwise one project with a deep queue can
+// starve every other attached project indefinitely, no matter how modest
+// its own configured share. A project's own arrival order is preserved
+// among its own tasks.
+func pickTasksToStart(eligible []ResultSnapshot, slots int) []ResultSnapshot {
+	if slots <= 0 || len(eligible) == 0 {
+		return nil
+	}
+
+	type queue struct {
+		share float64
+		items []ResultSnapshot
+	}
+	order := make([]string, 0, 4)
+	byProject := map[string]*queue{}
+	for _, r := range eligible {
+		q, ok := byProject[r.ProjectURL]
+		if !ok {
+			share := r.ResourceShare
+			if share <= 0 {
+				share = 100 // BOINC's own default when a project never sets one
+			}
+			q = &queue{share: share}
+			byProject[r.ProjectURL] = q
+			order = append(order, r.ProjectURL)
+		}
+		q.items = append(q.items, r)
+	}
+	if len(order) == 1 {
+		// The common case: nothing to divide, just cap at what's queued.
+		q := byProject[order[0]]
+		if slots > len(q.items) {
+			slots = len(q.items)
+		}
+		return append([]ResultSnapshot(nil), q.items[:slots]...)
+	}
+
+	type alloc struct {
+		url  string
+		want int
+		frac float64
+	}
+	totalShare := 0.0
+	for _, url := range order {
+		totalShare += byProject[url].share
+	}
+	allocs := make([]alloc, len(order))
+	assigned := 0
+	for i, url := range order {
+		q := byProject[url]
+		exact := float64(slots) * q.share / totalShare
+		want := int(exact)
+		if want > len(q.items) {
+			want = len(q.items)
+		}
+		allocs[i] = alloc{url: url, want: want, frac: exact - float64(int(exact))}
+		assigned += want
+	}
+
+	// Largest-remainder method: hand out any leftover slots to the projects
+	// closest to their next whole share first, then keep going round-robin
+	// for whatever remains unclaimed (e.g. a low-share project's queue ran
+	// dry, freeing its slots up for everyone else).
+	remaining := slots - assigned
+	sort.SliceStable(allocs, func(i, j int) bool { return allocs[i].frac > allocs[j].frac })
+	for remaining > 0 {
+		progress := false
+		for i := range allocs {
+			if remaining <= 0 {
 				break
 			}
-			if diskQuota > 0 && diskUsage >= diskQuota {
-				log.Printf("[Worker] Disk quota reached (%d/%d), skipping downloads", diskUsage, diskQuota)
-				break
+			a := &allocs[i]
+			if a.want < len(byProject[a.url].items) {
+				a.want++
+				remaining--
+				progress = true
 			}
-			if e.cache.Full(r.GPU) {
-				e.warnCacheFull(r.GPU)
-				continue // the other class of work may still have room
-			}
-			go e.startTask(r)
-			running++
+		}
+		if !progress {
+			break // no project has any more queued work to give slots to
 		}
 	}
+
+	var picked []ResultSnapshot
+	for _, a := range allocs {
+		picked = append(picked, byProject[a.url].items[:a.want]...)
+	}
+	return picked
 }
 
 // warnCacheFull logs a full cache at most once every ten minutes per class.
