@@ -23,6 +23,15 @@ var iconPNG []byte
 
 var wailsApp *App
 
+// instanceID names the single-instance lock. IRIS_INSTANCE_ID lets a
+// development copy run next to an installed one instead of handing over to it.
+func instanceID() string {
+	if id := os.Getenv("IRIS_INSTANCE_ID"); id != "" {
+		return "dev.alplix.iris." + id
+	}
+	return "dev.alplix.iris"
+}
+
 // quitting is set when the user picks Quit from the tray. Closing the window
 // only hides it to the tray, so this tells OnBeforeClose to let the app exit.
 var quitting atomic.Bool
@@ -56,7 +65,7 @@ func startWails() {
 			Assets: assets,
 		},
 		SingleInstanceLock: &options.SingleInstanceLock{
-			UniqueId: "dev.alplix.iris",
+			UniqueId: instanceID(),
 			OnSecondInstanceLaunch: func(_ options.SecondInstanceData) {
 				if wailsApp != nil && wailsApp.ctx != nil {
 					wailsApp.showWindow()

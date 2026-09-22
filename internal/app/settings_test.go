@@ -88,3 +88,20 @@ func TestUpsertKeepsAGivenID(t *testing.T) {
 		t.Fatalf("host with a chosen ID was not stored under it: %+v", s.List())
 	}
 }
+
+func TestCPULabel(t *testing.T) {
+	for _, c := range []struct{ vendor, model, want string }{
+		{"GenuineIntel", "13th Gen Intel(R) Core(TM) i5-13400F", "13th Gen Intel(R) Core(TM) i5-13400F"},
+		{"AuthenticAMD", "AMD Ryzen 9 7950X 16-Core Processor", "AMD Ryzen 9 7950X 16-Core Processor"},
+		{"ARM", "Cortex-A72 (Raspberry Pi 4 Model B)", "ARM Cortex-A72 (Raspberry Pi 4 Model B)"},
+		{"SiFive", "sifive,u74-mc (rv64imafdc)", "sifive,u74-mc (rv64imafdc)"}, // model already names the vendor
+		{"Apple", "Apple M3 Pro", "Apple M3 Pro"},
+		{"IBM", "POWER9 (architected)", "IBM POWER9 (architected)"},
+		{"", "Unknown CPU", "Unknown CPU"},
+		{"ARM", "", "ARM"},
+	} {
+		if got := cpuLabel(c.vendor, c.model); got != c.want {
+			t.Errorf("cpuLabel(%q, %q) = %q, want %q", c.vendor, c.model, got, c.want)
+		}
+	}
+}

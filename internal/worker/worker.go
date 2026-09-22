@@ -27,6 +27,8 @@ type Engine struct {
 	stopping bool
 	running  map[string]*exec.Cmd
 	cfg      Config
+
+	cacheWarned map[bool]time.Time
 }
 
 type Config struct {
@@ -56,6 +58,9 @@ type StateAccessor interface {
 }
 
 type CacheAccessor interface {
+	// Full reports whether the disk share of one class of work (GPU or CPU)
+	// is used up.
+	Full(gpu bool) bool
 	AllocSlot(gpu bool) (string, error)
 	FreeSlot(slot string) error
 	SlotDir(gpu bool) string
@@ -237,10 +242,32 @@ func (e *Engine) runCycle() {
 				log.Printf("[Worker] Disk quota reached (%d/%d), skipping downloads", diskUsage, diskQuota)
 				break
 			}
+			if e.cache.Full(r.GPU) {
+				e.warnCacheFull(r.GPU)
+				continue // the other class of work may still have room
+			}
 			go e.startTask(r)
 			running++
 		}
 	}
+}
+
+// warnCacheFull logs a full cache at most once every ten minutes per class.
+func (e *Engine) warnCacheFull(gpu bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.cacheWarned == nil {
+		e.cacheWarned = map[bool]time.Time{}
+	}
+	if time.Since(e.cacheWarned[gpu]) < 10*time.Minute {
+		return
+	}
+	e.cacheWarned[gpu] = time.Now()
+	kind := "CPU"
+	if gpu {
+		kind = "GPU"
+	}
+	log.Printf("[Worker] %s cache is full, not starting more %s work", kind, kind)
 }
 
 func (e *Engine) startTask(r ResultSnapshot) {

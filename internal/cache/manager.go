@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Manager struct {
@@ -14,7 +15,18 @@ type Manager struct {
 	cpuDir  string
 	cfg     Config
 	mu      sync.RWMutex
+
+	usageMu sync.Mutex
+	usage   map[bool]usageSample
 }
+
+type usageSample struct {
+	at    time.Time
+	bytes int64
+}
+
+// usageTTL bounds how often the work directories are walked.
+const usageTTL = 20 * time.Second
 
 type Config struct {
 	Enabled          bool
@@ -38,7 +50,7 @@ type DiskInfo struct {
 }
 
 func New(dataDir string, cfg Config) *Manager {
-	m := &Manager{dataDir: dataDir, cfg: cfg}
+	m := &Manager{dataDir: dataDir, cfg: cfg, usage: map[bool]usageSample{}}
 	if cfg.SeparateSlots {
 		m.gpuDir = filepath.Join(dataDir, "slots_gpu")
 		m.cpuDir = filepath.Join(dataDir, "slots")
@@ -145,4 +157,55 @@ func dirSize(path string) int64 {
 		return nil
 	})
 	return size
+}
+
+// cacheDir is where downloaded files of one class of work are cached.
+func (m *Manager) cacheDir(gpu bool) string {
+	if gpu && m.cfg.SeparateSlots {
+		return filepath.Join(m.dataDir, "cache_gpu")
+	}
+	return filepath.Join(m.dataDir, "cache")
+}
+
+// Limit is the most disk space, in bytes, one class of work may hold: the GPU
+// cache size for GPU work and the CPU cache size for CPU work. 0 means no
+// limit (the cache is switched off or the size is 0).
+func (m *Manager) Limit(gpu bool) int64 {
+	if !m.cfg.Enabled {
+		return 0
+	}
+	mb := m.cfg.CPUCacheSizeMB
+	if gpu && m.cfg.SeparateSlots {
+		mb = m.cfg.CacheSizeMB
+	}
+	if mb <= 0 {
+		return 0
+	}
+	return int64(mb) * 1024 * 1024
+}
+
+// Usage is the disk space one class of work currently holds: its slots, its
+// project files and its cache. The figure is re-measured at most every 20 s.
+func (m *Manager) Usage(gpu bool) int64 {
+	m.usageMu.Lock()
+	defer m.usageMu.Unlock()
+	if s, ok := m.usage[gpu]; ok && time.Since(s.at) < usageTTL {
+		return s.bytes
+	}
+	seen := map[string]bool{}
+	var total int64
+	for _, d := range []string{m.SlotDir(gpu), m.ProjectDir(gpu), m.cacheDir(gpu)} {
+		if !seen[d] {
+			seen[d] = true
+			total += dirSize(d)
+		}
+	}
+	m.usage[gpu] = usageSample{at: time.Now(), bytes: total}
+	return total
+}
+
+// Full reports whether one class of work has used up its share.
+func (m *Manager) Full(gpu bool) bool {
+	lim := m.Limit(gpu)
+	return lim > 0 && m.Usage(gpu) >= lim
 }
