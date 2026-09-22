@@ -167,11 +167,16 @@ jobs:
           mkdir -p AppDir/usr/bin
           cp build/bin/iris AppDir/usr/bin/iris
           cp build/bin/irisd AppDir/usr/bin/irisd
+          # linuxdeploy names the deployed icon after --icon-file's own
+          # filename, but iris.desktop declares Icon=iris — a mismatched
+          # icon.png vs iris.desktop's Icon=iris fails deployment outright
+          # ("Could not find suitable icon for Icon entry: iris").
+          cp build/icon.png iris.png
           DEPLOY_GTK_VERSION=3 ./squashfs-root/AppRun \
             --appdir AppDir \
             --executable AppDir/usr/bin/iris \
             --desktop-file build/linux/iris.desktop \
-            --icon-file build/icon.png \
+            --icon-file iris.png \
             --plugin gtk \
             --output appimage
           mv Iris-*.AppImage iris-${{ matrix.arch }}.AppImage || mv Alperen*.AppImage iris-${{ matrix.arch }}.AppImage
