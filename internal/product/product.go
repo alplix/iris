@@ -8,7 +8,7 @@ import (
 
 const Name = "Iris"
 
-const Version = "1.3.3"
+const Version = "1.3.4"
 
 const RepoURL = "https://github.com/alplix/iris"
 
