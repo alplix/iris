@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Iris
+GenericName=Volunteer Computing Manager
+Comment=Fleet manager and client for BOINC-style volunteer computing
+Exec=iris
+Icon=iris
+Terminal=false
+Categories=Utility;Science;
+StartupWMClass=iris

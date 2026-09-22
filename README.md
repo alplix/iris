@@ -219,7 +219,10 @@ Download the latest release from the [Releases page](https://github.com/alplix/i
   signed yet, so SmartScreen may warn about an unknown publisher.
 - **macOS** — unzip `iris-darwin-*.zip` and move `Iris.app` to Applications (unsigned: right-click →
   Open the first time).
-- **Linux** — extract `iris-linux-*.tar.gz` (GTK3 + WebKitGTK 4.1 required).
+- **Linux** — install `iris-amd64.deb` / `iris-arm64.deb` (Debian, Ubuntu and derivatives) or
+  `iris-amd64.rpm` / `iris-arm64.rpm` (Fedora and derivatives); either pulls in GTK3 and WebKitGTK 4.1
+  automatically and adds a menu entry. Prefer no package manager? Extract `iris-linux-*.tar.gz` instead
+  (GTK3 + WebKitGTK 4.1 required, installed separately).
 
 ## Getting started
 
@@ -279,12 +282,22 @@ Honest overview of what exists today.
 **Implemented and tested**
 
 - The manager and all of its pages; nine languages; installer and archives for six platforms plus the
-  client-only builds.
+  client-only builds; **.deb and .rpm packages** for desktop Linux, built and dependency-verified in CI.
 - GUI RPC server and client, including authentication; the manager against Iris's own client and
   against simulated data. (Talking to a stock BOINC client uses the same protocol but has had far less
   testing — reports welcome.)
-- Scheduler request/reply, file transfer with verification, credit/RAC and statistics, preferences,
-  benchmark, hardware detection, GPU/CPU work areas with enforced limits.
+- **Scheduler discovery**: the real scheduler address is scraped from a project's master page (the
+  actual BOINC protocol), not guessed from the master URL — verified live against Einstein@Home.
+- Scheduler request/reply (with real work-fetch sizing, so a project is actually asked for work), file
+  transfer with verification, credit/RAC and statistics, preferences, benchmark, hardware detection,
+  GPU/CPU work areas with enforced limits.
+- **Multi-project scheduling**: free task slots are divided across attached projects by resource share
+  (BOINC's own default of 100 when unset) instead of a first-come FIFO that could starve one project
+  behind another's deep queue. This is a simple, honest proportional split, not BOINC's own
+  historical-debt algorithm — and there is not yet a settings page to configure a *different* share per
+  project, so in practice every project is equally weighted today.
+- The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
+  Tilvar AI. See [AI Assistant](#ai-assistant) above.
 
 **Not implemented yet**
 
@@ -295,9 +308,11 @@ Honest overview of what exists today.
 - **Requesting GPU work**: GPU information is not sent in scheduler requests, so projects will not
   send GPU tasks. GPUs are detected and shown, and the work areas are separate, but nothing computes
   on them yet.
-- Work-fetch policy (how much work to ask for), multiple-project scheduling by resource share,
-  web-based preferences, proxy settings, account creation from the client.
-- Linux packages (.deb / .rpm / AppImage), code signing, a tray icon on macOS.
+- A settings page to actually configure a *different* resource share per project (today every project
+  defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
+  settings, account creation from the client.
+- An AppImage for Linux (.deb / .rpm are done), code signing, a tray icon on macOS (`getlantern/systray`
+  and Wails both register their own Cocoa app delegate, so the two cannot yet be linked into one binary).
 
 If one of these matters to you, open an issue — the order of the roadmap follows what people ask for.
 

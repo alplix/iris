@@ -124,6 +124,26 @@ jobs:
           mkdir -p build/bin
           GOOS=linux GOARCH=${{ matrix.arch }} CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o build/bin/irisd ./cmd/irisd
 
+      - name: Install nfpm
+        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+
+      - name: Package .deb and .rpm
+        env:
+          IRIS_PKG_VERSION: ${{ github.ref_name }}
+          IRIS_PKG_ARCH: ${{ matrix.arch }}
+        run: |
+          export IRIS_PKG_VERSION="${IRIS_PKG_VERSION#v}" # nfpm's version must not start with "v"
+          nfpm pkg --config build/linux/nfpm.yaml --packager deb --target iris-${{ matrix.arch }}.deb
+          nfpm pkg --config build/linux/nfpm.yaml --packager rpm --target iris-${{ matrix.arch }}.rpm
+
+      - name: Verify the .deb installs cleanly (with its declared dependencies)
+        run: sudo apt-get install -y ./iris-${{ matrix.arch }}.deb
+
+      - name: Sanity-check the .rpm's metadata
+        run: |
+          sudo apt-get install -y rpm
+          rpm -qip iris-${{ matrix.arch }}.rpm
+
       - name: Stage archive
         working-directory: build/bin
         run: |
@@ -136,7 +156,10 @@ jobs:
         with:
           name: iris-linux-${{ matrix.arch }}
           if-no-files-found: error
-          path: iris-linux-${{ matrix.arch }}.tar.gz
+          path: |
+            iris-linux-${{ matrix.arch }}.tar.gz
+            iris-${{ matrix.arch }}.deb
+            iris-${{ matrix.arch }}.rpm
 
   build-darwin:
     name: Build darwin ${{ matrix.arch }}
