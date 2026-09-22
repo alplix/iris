@@ -391,6 +391,8 @@ func init() {
 		"ui.pausedQueued":     "{p} in pausa · {q} in coda",
 		"ui.prefsHelp":        "Un key=value per riga. Un valore vuoto cancella l'impostazione. Le modifiche valgono per l'intero client.",
 		"ui.rac":              "RAC",
+		"ui.realAppsToggle":   "Esegui le applicazioni reali del progetto (sperimentale, senza sandbox)",
+		"ui.realAppsWarning":  "Disattivato per impostazione predefinita. Se attivato, Iris scarica ed esegue l'applicazione reale e non modificata di ciascun progetto senza alcun sandbox, lo stesso modello di fiducia del client BOINC ufficiale. Attivalo solo per i progetti di cui ti fidi.",
 		"ui.refreshNow":       "Aggiorna ora",
 		"ui.resetDefaults":    "Ripristina predefiniti",
 		"ui.resume":           "Riprendi",

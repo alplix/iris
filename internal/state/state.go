@@ -143,6 +143,7 @@ type Result struct {
 	VersionNum                int        `xml:"version_num"`
 	CmdLine                   string     `xml:"cmd_line"`
 	AppVersionNum             int        `xml:"app_version_num"`
+	AppName                   string     `xml:"app_name"`
 	Files                     []FileInfo `xml:"file_info"`
 	StdOut                    string     `xml:"stdout"`
 	StdErr                    string     `xml:"stderr"`
@@ -153,6 +154,9 @@ type FileInfo struct {
 	URL    string  `xml:"url"`
 	NBytes float64 `xml:"nbytes"`
 	MD5    string  `xml:"md5"`
+	// MainProgram marks the downloaded file (from a project's app_version)
+	// that is the real executable to launch for this task.
+	MainProgram bool `xml:"main_program,omitempty"`
 }
 
 func (r *Result) IsGPU() bool {

@@ -391,6 +391,8 @@ func init() {
 		"ui.pausedQueued":     "{p} duraklatıldı · {q} sırada",
 		"ui.prefsHelp":        "Her satıra bir key=value yazın. Boş değer ayarı temizler. Değişiklikler tüm istemciye uygulanır.",
 		"ui.rac":              "RAC",
+		"ui.realAppsToggle":   "Gerçek proje uygulamalarını çalıştır (deneysel, sandbox'sız)",
+		"ui.realAppsWarning":  "Varsayılan olarak kapalıdır. Açıldığında Iris, her projenin gerçek, değiştirilmemiş uygulama dosyasını hiçbir sandbox olmadan indirip çalıştırır — resmi BOINC istemcisiyle aynı güven modeli. Bunu yalnızca güvendiğiniz projeler için açın.",
 		"ui.refreshNow":       "Şimdi yenile",
 		"ui.resetDefaults":    "Varsayılanlara dön",
 		"ui.resume":           "Devam",

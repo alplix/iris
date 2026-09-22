@@ -97,6 +97,34 @@ type Reply struct {
 	FileInfos     []FileInfoXML   `xml:"file_info"`
 	FileTransfers []ReplyFileXfer `xml:"file_transfer"`
 	Results       []ReplyResult   `xml:"result"`
+	// AppVersions describes the real, project-specific executables the
+	// scheduler is offering for the platforms/plan classes this host asked
+	// about. A ReplyResult only carries enough (app_version_num, plan_class)
+	// to look one of these up — see engine.go's matchAppVersion.
+	AppVersions []AppVersionXML `xml:"app_version"`
+}
+
+// AppVersionXML describes one real application build a project ships,
+// exactly as BOINC's own scheduler reply does:
+// https://github.com/BOINC/boinc/wiki/XmlFormat
+type AppVersionXML struct {
+	XMLName    xml.Name        `xml:"app_version"`
+	AppName    string          `xml:"app_name"`
+	VersionNum int             `xml:"version_num"`
+	Platform   string          `xml:"platform"`
+	PlanClass  string          `xml:"plan_class"`
+	AvgNCPUs   float64         `xml:"avg_ncpus"`
+	FileRef    []AppFileRefXML `xml:"file_ref"`
+}
+
+// AppFileRefXML is a file_ref as it appears inside an app_version: it names
+// one of the files the app version needs (looked up in Reply.FileInfos for
+// its download URL, same as a result's own file_ref) and, for the one file
+// that is the actual executable, carries an empty <main_program/> tag.
+type AppFileRefXML struct {
+	XMLName     xml.Name  `xml:"file_ref"`
+	FileName    string    `xml:"file_name"`
+	MainProgram *struct{} `xml:"main_program"`
 }
 
 type ReplyFileXfer struct {
