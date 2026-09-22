@@ -33,7 +33,10 @@ func NewDir(dataDir, projectURL string) *ProjectDir {
 }
 
 func (pd *ProjectDir) Init() error {
-	for _, d := range []string{pd.base, "slots", "apps", "templates", "download", "upload"} {
+	if err := os.MkdirAll(pd.base, 0o755); err != nil {
+		return err
+	}
+	for _, d := range []string{"slots", "apps", "templates", "download", "upload"} {
 		if err := os.MkdirAll(filepath.Join(pd.base, d), 0o755); err != nil {
 			return err
 		}
