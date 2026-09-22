@@ -318,6 +318,59 @@ func TestDoRPCAttachesTheRealAppExecutableFromAppVersion(t *testing.T) {
 	}
 }
 
+// TestBuildCoprocsXMLOmitsTheElementForAGPUlessHost guards a real, easy to
+// miss mistake: sending an empty <coprocs/> (as opposed to no element at
+// all) can itself signal "coprocessor-capable" to some schedulers, which
+// would misrepresent a host with no GPU at all.
+func TestBuildCoprocsXMLOmitsTheElementForAGPUlessHost(t *testing.T) {
+	if c := buildCoprocsXML(HostInfoSnapshot{}); c != nil {
+		t.Errorf("a GPU-less host must get a nil <coprocs>, got %+v", c)
+	}
+}
+
+func TestBuildCoprocsXMLAdvertisesEachDetectedVendor(t *testing.T) {
+	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 2, NvidiaName: "GeForce RTX 4080 SUPER", AtiCount: 1, AtiName: "Radeon RX 7900"})
+	if c == nil {
+		t.Fatal("expected a non-nil <coprocs> for a host with GPUs")
+	}
+	if c.CUDA == nil || c.CUDA.Count != 2 || c.CUDA.Name != "GeForce RTX 4080 SUPER" || c.CUDA.HaveCUDA != 1 {
+		t.Errorf("coproc_cuda = %+v, want count=2 name=GeForce RTX 4080 SUPER have_cuda=1", c.CUDA)
+	}
+	if c.ATI == nil || c.ATI.Count != 1 || c.ATI.Name != "Radeon RX 7900" {
+		t.Errorf("coproc_ati = %+v, want count=1 name=Radeon RX 7900", c.ATI)
+	}
+	if c.CUDA.PeakFlops != 0 {
+		t.Error("peak_flops must stay 0 (unmeasured) rather than a fabricated number")
+	}
+}
+
+// TestDoRPCAdvertisesGPUsOnlyWhenTheHostHasThem is the end-to-end check that
+// a detected NVIDIA GPU actually reaches the wire, and that a GPU-less host
+// sends no <coprocs> at all.
+func TestDoRPCAdvertisesGPUsOnlyWhenTheHostHasThem(t *testing.T) {
+	var lastBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			lastBody, _ = io.ReadAll(r.Body)
+		}
+		w.Write([]byte(`<scheduler_reply></scheduler_reply>`))
+	}))
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "NoGPU"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if bytes.Contains(lastBody, []byte("coprocs")) {
+		t.Errorf("a GPU-less host must not send <coprocs>, got body:\n%s", lastBody)
+	}
+
+	fs.hostInfo = HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "GeForce RTX 4080 SUPER"}
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if !bytes.Contains(lastBody, []byte("<coproc_cuda>")) || !bytes.Contains(lastBody, []byte("GeForce RTX 4080 SUPER")) {
+		t.Errorf("expected the detected NVIDIA GPU on the wire, got body:\n%s", lastBody)
+	}
+}
+
 // TestForceOneContactsAProjectNotYetTrackedByAPeriodicCycle guards
 // RequestUpdate's real-world use case: a project attached moments ago,
 // before any periodic runCycle has discovered it into e.projects yet.

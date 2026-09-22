@@ -150,6 +150,35 @@ func TestBuildInitDataXMLIncludesCoreFields(t *testing.T) {
 	}
 }
 
+// TestBuildInitDataXMLAdvertisesTheFirstGPUOnlyForGPUTasks guards the
+// (deliberately simplistic) device-selection wiring: a GPU task gets a
+// device index so its app can find its GPU at all, a CPU task gets neither
+// tag, since a stray gpu_device_num could make a CPU app that happens to
+// link the BOINC API misbehave.
+func TestBuildInitDataXMLAdvertisesTheFirstGPUOnlyForGPUTasks(t *testing.T) {
+	gpuTask := ResultSnapshot{Name: "g", GPU: true}
+	data := string(buildInitDataXML(gpuTask, "", "data", 300))
+	for _, want := range []string{"<gpu_device_num>0</gpu_device_num>", "<gpu_opencl_dev_index>0</gpu_opencl_dev_index>"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("GPU task init_data.xml missing %q, got:\n%s", want, data)
+		}
+	}
+
+	cpuTask := ResultSnapshot{Name: "c", GPU: false}
+	data = string(buildInitDataXML(cpuTask, "", "data", 300))
+	if strings.Contains(data, "gpu_device_num") {
+		t.Errorf("a CPU task must not get a gpu_device_num, got:\n%s", data)
+	}
+}
+
+func TestGPUEnvAdvertisesDeviceZero(t *testing.T) {
+	env := gpuEnv()
+	joined := strings.Join(env, " ")
+	if !strings.Contains(joined, "CUDA_VISIBLE_DEVICES=0") || !strings.Contains(joined, "GPU_DEVICE_ORDINAL=0") {
+		t.Errorf("gpuEnv() = %v, want both vendor device-selection vars set to device 0", env)
+	}
+}
+
 func TestIsMainProgramFileMatchesOnlyTheFlaggedFile(t *testing.T) {
 	r := ResultSnapshot{Slot: "/slot", Files: []FileRef{
 		{Name: "input.dat"},

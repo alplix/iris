@@ -516,6 +516,14 @@ func buildInitDataXML(r ResultSnapshot, authenticator, boincDir string, checkpoi
 	fmt.Fprintf(&b, "  <checkpoint_period>%d</checkpoint_period>\n", checkpointSec)
 	fmt.Fprintf(&b, "  <fraction_done_start>%.6f</fraction_done_start>\n", r.FracDone)
 	b.WriteString("  <fraction_done_end>1.000000</fraction_done_end>\n")
+	if r.GPU {
+		// Always device 0: Iris does not track which of possibly several
+		// installed GPUs is free the way the reference client's coproc
+		// scheduler does, so multi-GPU hosts only ever offer up the first
+		// device. The overwhelmingly common single-GPU case is unaffected.
+		b.WriteString("  <gpu_device_num>0</gpu_device_num>\n")
+		b.WriteString("  <gpu_opencl_dev_index>0</gpu_opencl_dev_index>\n")
+	}
 	b.WriteString("</app_init_data>\n")
 	return []byte(b.String())
 }
@@ -638,6 +646,14 @@ func (e *Engine) warnRealAppsDisabled(name string) {
 	log.Printf("[Worker] %s has a real application ready but the experimental \"run real applications\" setting is off (Settings > global preferences); the task cannot start", name)
 }
 
+// gpuEnv is a best-effort compatibility shim for GPU apps that read the
+// vendor's own standard environment variable for device selection instead
+// of (or in addition to) init_data.xml's gpu_device_num — always device 0,
+// the same single-GPU-host assumption buildInitDataXML documents.
+func gpuEnv() []string {
+	return []string{"CUDA_VISIBLE_DEVICES=0", "GPU_DEVICE_ORDINAL=0"}
+}
+
 func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 	start := time.Now()
 
@@ -649,6 +665,9 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 		cmd = exec.Command(exePath)
 	}
 	cmd.Dir = r.Slot
+	if r.GPU {
+		cmd.Env = append(os.Environ(), gpuEnv()...)
+	}
 
 	stdoutPath := filepath.Join(r.Slot, "stdout.txt")
 	stderrPath := filepath.Join(r.Slot, "stderr.txt")

@@ -728,10 +728,19 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 	a.s.RLock()
 	defer a.s.RUnlock()
 	hi := a.s.HostInfo
+	nvidiaName, atiName := "", ""
+	if len(hi.Coprocs.NvidiaDeviceNames) > 0 {
+		nvidiaName = hi.Coprocs.NvidiaDeviceNames[0]
+	}
+	if len(hi.Coprocs.AtiDeviceNames) > 0 {
+		atiName = hi.Coprocs.AtiDeviceNames[0]
+	}
 	return scheduler.HostInfoSnapshot{
 		OSName: hi.OSName, OSVersion: hi.OSVersion, Vendor: hi.PVendor,
 		Model: hi.PModel, Ncpus: int(hi.PNcpus), PFlops: hi.PFlops,
 		MNbytes: hi.MNbytes, DFree: hi.DFree, DTotal: hi.DTotal, HostCPID: hi.HostCPID,
+		NvidiaCount: int(hi.Coprocs.NvidiaDevCount), NvidiaName: nvidiaName,
+		AtiCount: int(hi.Coprocs.AtiDevCount), AtiName: atiName,
 	}
 }
 
