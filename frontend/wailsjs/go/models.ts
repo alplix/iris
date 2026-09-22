@@ -375,6 +375,8 @@ export namespace app {
 	    day: string;
 	    hostCredit: number;
 	    userCredit: number;
+	    tasksSuccess: number;
+	    tasksError: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new StatPoint(source);
@@ -385,6 +387,8 @@ export namespace app {
 	        this.day = source["day"];
 	        this.hostCredit = source["hostCredit"];
 	        this.userCredit = source["userCredit"];
+	        this.tasksSuccess = source["tasksSuccess"];
+	        this.tasksError = source["tasksError"];
 	    }
 	}
 	export class StatSeries {
@@ -439,6 +443,85 @@ export namespace app {
 	        this.up = source["up"];
 	        this.down = source["down"];
 	    }
+	}
+
+}
+
+export namespace assistant {
+	
+	export class ActionCard {
+	    id: string;
+	    tool: string;
+	    host?: string;
+	    project?: string;
+	    op?: string;
+	    mode?: string;
+	    fields?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActionCard(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.tool = source["tool"];
+	        this.host = source["host"];
+	        this.project = source["project"];
+	        this.op = source["op"];
+	        this.mode = source["mode"];
+	        this.fields = source["fields"];
+	    }
+	}
+	export class Clarify {
+	    kind: string;
+	    host?: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Clarify(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.host = source["host"];
+	        this.name = source["name"];
+	    }
+	}
+	export class Reply {
+	    text?: string;
+	    action?: ActionCard;
+	    clarify?: Clarify;
+	
+	    static createFrom(source: any = {}) {
+	        return new Reply(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.text = source["text"];
+	        this.action = this.convertValues(source["action"], ActionCard);
+	        this.clarify = this.convertValues(source["clarify"], Clarify);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
@@ -543,6 +626,25 @@ export namespace main {
 	        this.port = source["port"];
 	        this.password = source["password"];
 	        this.demo = source["demo"];
+	    }
+	}
+
+}
+
+export namespace tilvar {
+	
+	export class Message {
+	    role: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Message(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
 	    }
 	}
 

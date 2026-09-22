@@ -178,6 +178,9 @@ type DailyStat struct {
 	UserExpavgCredit Num `xml:"user_expavg_credit"`
 	HostTotalCredit  Num `xml:"host_total_credit"`
 	HostExpavgCredit Num `xml:"host_expavg_credit"`
+
+	TasksSuccess Num `xml:"tasks_success"`
+	TasksError   Num `xml:"tasks_error"`
 }
 
 // Cumulative reports whether the entry carries BOINC's cumulative host/user

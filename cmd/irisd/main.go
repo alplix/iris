@@ -394,11 +394,13 @@ func (h *clientHandler) GetTransfers() ([]byte, error) {
 // project_statistics layout (one entry per day, cumulative totals).
 func (h *clientHandler) GetStats() ([]byte, error) {
 	type dailyXML struct {
-		Day        int64   `xml:"day"`
-		UserTotal  float64 `xml:"user_total_credit"`
-		UserExpavg float64 `xml:"user_expavg_credit"`
-		HostTotal  float64 `xml:"host_total_credit"`
-		HostExpavg float64 `xml:"host_expavg_credit"`
+		Day          int64   `xml:"day"`
+		UserTotal    float64 `xml:"user_total_credit"`
+		UserExpavg   float64 `xml:"user_expavg_credit"`
+		HostTotal    float64 `xml:"host_total_credit"`
+		HostExpavg   float64 `xml:"host_expavg_credit"`
+		TasksSuccess int     `xml:"tasks_success"`
+		TasksError   int     `xml:"tasks_error"`
 	}
 	type projXML struct {
 		URL   string     `xml:"master_url"`
@@ -409,25 +411,55 @@ func (h *clientHandler) GetStats() ([]byte, error) {
 		Project []projXML `xml:"project_statistics"`
 	}
 	s := h.state.Snapshot()
-	byURL := map[string]*projXML{}
+
+	// Credit (scheduler RPC) and task counts (worker) are recorded on
+	// unrelated schedules, so they are merged here by (project, day) rather
+	// than assumed to line up.
+	type dayKey struct {
+		url string
+		day int64
+	}
+	byDay := map[dayKey]*dailyXML{}
+	byURL := map[string][]dayKey{}
+	seen := map[string]bool{}
+	touch := func(url string, day int64) *dailyXML {
+		k := dayKey{url, day}
+		d, ok := byDay[k]
+		if !ok {
+			d = &dailyXML{Day: day * 86400}
+			byDay[k] = d
+			byURL[url] = append(byURL[url], k)
+		}
+		if !seen[url] {
+			seen[url] = true
+		}
+		return d
+	}
 	var order []string
 	for _, c := range s.Credits {
-		p := byURL[c.URL]
-		if p == nil {
-			p = &projXML{URL: c.URL}
-			byURL[c.URL] = p
+		if !seen[c.URL] {
 			order = append(order, c.URL)
 		}
-		p.Daily = append(p.Daily, dailyXML{
-			Day:       c.Day * 86400,
-			UserTotal: c.UserTotal, UserExpavg: c.UserExpavg,
-			HostTotal: c.HostTotal, HostExpavg: c.HostExpavg,
-		})
+		d := touch(c.URL, c.Day)
+		d.UserTotal, d.UserExpavg = c.UserTotal, c.UserExpavg
+		d.HostTotal, d.HostExpavg = c.HostTotal, c.HostExpavg
+	}
+	for _, t := range s.TaskDays {
+		if !seen[t.URL] {
+			order = append(order, t.URL)
+		}
+		d := touch(t.URL, t.Day)
+		d.TasksSuccess, d.TasksError = t.Success, t.Error
 	}
 	var out statsXML
 	for _, u := range order {
-		sort.Slice(byURL[u].Daily, func(a, b int) bool { return byURL[u].Daily[a].Day < byURL[u].Daily[b].Day })
-		out.Project = append(out.Project, *byURL[u])
+		keys := byURL[u]
+		sort.Slice(keys, func(a, b int) bool { return keys[a].day < keys[b].day })
+		p := projXML{URL: u}
+		for _, k := range keys {
+			p.Daily = append(p.Daily, *byDay[k])
+		}
+		out.Project = append(out.Project, p)
 	}
 	return xml.MarshalIndent(out, "", "  ")
 }
@@ -795,6 +827,9 @@ func (a *stateWorkerAdapter) GetDiskQuota() int64      { return a.s.GetDiskQuota
 func (a *stateWorkerAdapter) SetDiskUsage(v int64)     { a.s.SetDiskUsage(v) }
 func (a *stateWorkerAdapter) UpdateStats(ok bool, cpu, gpu, credit float64) {
 	a.s.UpdateStats(ok, cpu, gpu, credit)
+}
+func (a *stateWorkerAdapter) RecordTaskDay(url string, ok bool, cpuTime float64) {
+	a.s.RecordTaskDay(url, ok, cpuTime)
 }
 func (a *stateWorkerAdapter) AddMessage(body, project string, pri int) {
 	a.s.AddMessage(body, project, pri)

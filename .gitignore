@@ -4,6 +4,7 @@
 /build/bin/
 
 # Go
+*.exe
 *.exe~
 *.test
 *.out

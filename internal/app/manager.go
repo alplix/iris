@@ -504,9 +504,11 @@ type StatSeries struct {
 }
 
 type StatPoint struct {
-	Day        string  `json:"day"`
-	HostCredit float64 `json:"hostCredit"`
-	UserCredit float64 `json:"userCredit"`
+	Day          string  `json:"day"`
+	HostCredit   float64 `json:"hostCredit"`
+	UserCredit   float64 `json:"userCredit"`
+	TasksSuccess int     `json:"tasksSuccess"`
+	TasksError   int     `json:"tasksError"`
 }
 
 type XferPoint struct {
@@ -567,7 +569,7 @@ func (m *Manager) Stats(hostID string) ([]StatSeries, error) {
 		ss := StatSeries{URL: ps.MasterURL, Name: nameByURL[ps.MasterURL]}
 		var running float64
 		for _, d := range ps.Daily {
-			pt := StatPoint{Day: statDay(d.Day.F())}
+			pt := StatPoint{Day: statDay(d.Day.F()), TasksSuccess: d.TasksSuccess.I(), TasksError: d.TasksError.I()}
 			if d.Cumulative() {
 				// BOINC layout: every entry already holds the running totals.
 				pt.HostCredit = d.HostTotalCredit.F()

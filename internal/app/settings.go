@@ -14,6 +14,10 @@ type Settings struct {
 	// ClientStopped is set when the user stopped the local client from the
 	// manager, so that the manager does not start it again by itself.
 	ClientStopped bool `json:"clientStopped,omitempty"`
+	// AssistantEnabled turns the AI assistant on. Every chat message sends a
+	// summary of the fleet to an external server (see internal/tilvar), so
+	// this defaults to off until the person explicitly agrees to it.
+	AssistantEnabled bool `json:"assistantEnabled,omitempty"`
 }
 
 func settingsPath() string { return filepath.Join(ConfigDir(), "settings.json") }

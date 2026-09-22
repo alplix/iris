@@ -6,6 +6,34 @@ export function AddHost(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AddHost'](arg1, arg2, arg3, arg4);
 }
 
+export function AssistantAsk(arg1) {
+  return window['go']['main']['App']['AssistantAsk'](arg1);
+}
+
+export function AssistantAvailable() {
+  return window['go']['main']['App']['AssistantAvailable']();
+}
+
+export function AssistantCancel(arg1) {
+  return window['go']['main']['App']['AssistantCancel'](arg1);
+}
+
+export function AssistantConfirm(arg1) {
+  return window['go']['main']['App']['AssistantConfirm'](arg1);
+}
+
+export function AssistantEnabled() {
+  return window['go']['main']['App']['AssistantEnabled']();
+}
+
+export function AssistantHistory() {
+  return window['go']['main']['App']['AssistantHistory']();
+}
+
+export function AssistantReset() {
+  return window['go']['main']['App']['AssistantReset']();
+}
+
 export function Attach(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['Attach'](arg1, arg2, arg3, arg4);
 }
@@ -128,6 +156,10 @@ export function RefreshAll() {
 
 export function RemoveHost(arg1) {
   return window['go']['main']['App']['RemoveHost'](arg1);
+}
+
+export function SetAssistantEnabled(arg1) {
+  return window['go']['main']['App']['SetAssistantEnabled'](arg1);
 }
 
 export function SetLanguage(arg1) {

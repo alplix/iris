@@ -225,6 +225,7 @@ function setPage(page) {
   state.filterStatus = 'all'
   if (page === 'stats') loadStats()
   if (page === 'settings') loadSettingsData()
+  if (page === 'assistant') loadAssistantState().then(render)
   render()
 }
 
@@ -270,6 +271,10 @@ function renderShell() {
           <div class="nav-item ${state.page === 'dashboard' ? 'active' : ''}" data-page="dashboard">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
             <span>${esc(T('nav.dash'))}</span>
+          </div>
+          <div class="nav-item ${state.page === 'assistant' ? 'active' : ''}" data-page="assistant">
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a4 4 0 0 1 4 4c0 1.1-.45 2.1-1.17 2.83A5 5 0 0 1 17 13v1a1 1 0 0 1-1 1h-1v3a3 3 0 0 1-6 0v-3H8a1 1 0 0 1-1-1v-1a5 5 0 0 1 2.17-4.17A4 4 0 0 1 8 6a4 4 0 0 1 4-4Z"/><path d="M9 10h.01M15 10h.01"/></svg>
+            <span>${esc(T('nav.assistant'))}</span>
           </div>
           <div class="nav-item ${state.page === 'tasks' ? 'active' : ''}" data-page="tasks">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
@@ -333,7 +338,7 @@ function renderShell() {
 }
 
 function pageTitle() {
-  const map = { dashboard: 'page.dash', tasks: 'page.tasks', projects: 'page.projects', transfers: 'page.transfers', messages: 'page.messages', stats: 'page.stats', hosts: 'page.hosts', settings: 'page.settings' }
+  const map = { dashboard: 'page.dash', assistant: 'page.assistant', tasks: 'page.tasks', projects: 'page.projects', transfers: 'page.transfers', messages: 'page.messages', stats: 'page.stats', hosts: 'page.hosts', settings: 'page.settings' }
   return esc(T(map[state.page] || 'page.dash'))
 }
 
@@ -347,6 +352,7 @@ function renderContent() {
   if (!c) return
   switch (state.page) {
     case 'dashboard': c.innerHTML = renderDashboard(); break
+    case 'assistant': c.innerHTML = renderAssistant(); break
     case 'tasks': c.innerHTML = renderTasks(); break
     case 'projects': c.innerHTML = renderProjects(); break
     case 'transfers': c.innerHTML = renderTransfers(); break
@@ -805,6 +811,7 @@ async function loadSettingsData() {
   for (const h of hosts) {
     try { state.prefs[h.id] = await api('GetPrefs', h.id) } catch (e) { state.prefs[h.id] = {} }
   }
+  await loadAssistantFlags()
 }
 
 function daemonLabel() {
@@ -919,6 +926,18 @@ function renderSettings() {
     ${fleetCard}
     ${prefsCards ? `<div class="section-title"><h2>${esc(T('nav.prefs'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${prefsCards}</div>` : ''}
     ${hwCards ? `<div class="section-title"><h2>${esc(T('ui.hardware'))}</h2></div><div class="cards-grid">${hwCards}</div>` : ''}
+    ${asst.available ? `<div class="card">
+      <div class="card-head"><h2 class="card-title">${esc(T('asst.title'))}</h2><span class="chip ${asst.enabled ? 'indigo' : 'plain'}">${esc(T(asst.enabled ? 'asst.enabled' : 'asst.off'))}</span></div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <p class="faint" style="margin:0;font-size:12px">${esc(T('asst.disabledBody'))}</p>
+        <div class="row" style="gap:8px">
+          ${asst.enabled
+            ? `<button class="btn sm" onclick="window._setPage('assistant')">${esc(T('asst.title'))} →</button>
+               <button class="btn sm danger" onclick="window._assistantDisable()">${esc(T('asst.disable'))}</button>`
+            : `<button class="btn sm primary" onclick="window._assistantEnable()">${esc(T('asst.enable'))}</button>`}
+        </div>
+      </div>
+    </div>` : ''}
     <div class="card">
       <div class="card-head"><h2 class="card-title">${esc(T('set.notifT'))}</h2></div>
       <div style="display:flex;flex-direction:column;gap:10px">
@@ -939,6 +958,267 @@ function renderSettings() {
       </div>
     </div>
   </div>`
+}
+
+// ---- AI Assistant (Tilvar) --------------------------------------------
+// A thin client over the chat session Go keeps in memory (internal/assistant):
+// this module only mirrors what the last Ask/Confirm/Cancel call returned, it
+// never re-fetches history on its own background poll, so a slow network
+// never interrupts someone mid-sentence.
+let asst = { available: false, enabled: false, history: [], sending: false, pendingAction: null, error: '' }
+
+// loadAssistantFlags is the cheap half (no history fetch) — used by the
+// Settings page's consent card, which polls in the background and has no
+// need to pull the whole conversation just to show an on/off switch.
+async function loadAssistantFlags() {
+  try { asst.available = await api('AssistantAvailable') } catch (e) { asst.available = false }
+  asst.enabled = asst.available ? await api('AssistantEnabled').catch(() => false) : false
+}
+
+async function loadAssistantState() {
+  await loadAssistantFlags()
+  asst.history = asst.enabled ? (await api('AssistantHistory').catch(() => [])) || [] : []
+}
+
+function assistantOpLabel(op) {
+  const map = {
+    suspend: 'asst.opProjectSuspend', resume: 'asst.opProjectResume', update: 'asst.opProjectUpdate',
+    detach: 'asst.opProjectDetach', nomorework: 'asst.opProjectNoMore', allowmorework: 'asst.opProjectAllow'
+  }
+  return T(map[op] || op)
+}
+
+// assistantActionText turns the structured ActionCard Go sends into a
+// sentence in the user's own language — the model never gets to phrase this
+// itself, so a prompt injection can at most name a real host/project/op, all
+// of which resolve() has already checked exist.
+function assistantActionText(a) {
+  if (!a) return ''
+  switch (a.tool) {
+    case 'project_op':
+      return T('asst.actionProjectOp', { op: assistantOpLabel(a.op), project: a.project, host: a.host })
+    case 'client_op':
+    case 'client_op_all': {
+      const host = a.tool === 'client_op_all' ? T('asst.allServers') : a.host
+      if (a.op === 'benchmarks') return T('asst.actionBenchmark', { host })
+      const mode = T('run.' + a.mode)
+      return a.op === 'setNetworkMode' ? T('asst.actionNetMode', { mode, host }) : T('asst.actionRunMode', { mode, host })
+    }
+    case 'set_prefs': {
+      const fields = Object.entries(a.fields || {}).map(([k, v]) => `${k}=${v}`).join(', ')
+      return T('asst.actionPrefs', { host: a.host, fields })
+    }
+    default:
+      return a.tool
+  }
+}
+
+function assistantClarifyText(c) {
+  if (!c) return T('asst.clarifyInvalid')
+  switch (c.kind) {
+    case 'host_not_found': return T('asst.clarifyHostNotFound', { name: c.name })
+    case 'project_not_found': return T('asst.clarifyProjectNotFound', { name: c.name, host: c.host })
+    case 'unsupported_tool': return T('asst.clarifyUnsupported')
+    default: return T('asst.clarifyInvalid')
+  }
+}
+
+function assistantSupportLinks() {
+  return `<div class="faint" style="font-size:11px;margin-top:10px">
+    ${esc(T('asst.support'))}:
+    <a class="link" href="#" onclick="window._openUrl('https://coff.ee/alplix');return false">${esc(T('asst.linkCoffee'))}</a> ·
+    <a class="link" href="#" onclick="window._openUrl('https://athena.org.tr');return false">${esc(T('asst.linkAthena'))}</a> ·
+    <a class="link" href="#" onclick="window._openUrl('https://iris.athena.org.tr');return false">${esc(T('asst.linkIrisSite'))}</a>
+  </div>`
+}
+
+// assistantGuide is the full explanation the user asked for — what the
+// assistant can and can't do, and where its data goes — shown before it's
+// even turned on, and always reachable afterwards from the chat page too.
+function assistantGuide() {
+  return `<div style="display:flex;flex-direction:column;gap:12px">
+    <div>
+      <div style="font-weight:700;font-size:13px">${esc(T('asst.guideDoTitle'))}</div>
+      <p style="color:var(--text-soft);margin:4px 0 0;font-size:12.5px">${esc(T('asst.guideDoBody'))}</p>
+    </div>
+    <div>
+      <div style="font-weight:700;font-size:13px">${esc(T('asst.guideSafeTitle'))}</div>
+      <p style="color:var(--text-soft);margin:4px 0 0;font-size:12.5px">${esc(T('asst.guideSafeBody'))}</p>
+    </div>
+    <div>
+      <div style="font-weight:700;font-size:13px">${esc(T('asst.guidePrivacyTitle'))}</div>
+      <p style="color:var(--text-soft);margin:4px 0 0;font-size:12.5px">${esc(T('asst.guidePrivacyBody'))}</p>
+    </div>
+  </div>`
+}
+
+function assistantExampleChips() {
+  const examples = [T('asst.ex1'), T('asst.ex2'), T('asst.ex3'), T('asst.ex4')]
+  return `<div>
+    <div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">${esc(T('asst.guideExamplesTitle'))}</div>
+    <div class="row wrap" style="gap:6px">
+      ${examples.map(e => `<button class="btn sm" onclick="window._assistantExample(${JSON.stringify(e).replace(/"/g, '&quot;')})">${esc(e)}</button>`).join('')}
+    </div>
+  </div>`
+}
+
+function renderAssistant() {
+  if (!asst.available) {
+    return `<div class="content-inner"><div class="card"><div class="empty"><b>${esc(T('asst.unavailable'))}</b></div></div></div>`
+  }
+  if (!asst.enabled) {
+    return `<div class="content-inner">
+      <div class="card" style="max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+        <div class="card-head"><h2 class="card-title">${esc(T('asst.disabledTitle'))}</h2></div>
+        <p style="color:var(--text-soft);margin:0;font-size:13px">${esc(T('asst.disabledBody'))}</p>
+        <div class="row" style="gap:8px">
+          <button class="btn primary" onclick="window._assistantEnable()">${esc(T('asst.enable'))}</button>
+        </div>
+        <div style="border-top:1px solid var(--border);padding-top:12px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">${esc(T('asst.guideTitle'))}</div>
+          ${assistantGuide()}
+        </div>
+        ${assistantSupportLinks()}
+      </div>
+    </div>`
+  }
+  return `<div class="content-inner">
+    <div class="card asst-card">
+      <div class="card-head">
+        <h2 class="card-title">${esc(T('asst.title'))}</h2>
+        <div class="row" style="gap:8px">
+          <button class="btn sm" onclick="window._assistantReset()">${esc(T('asst.newChat'))}</button>
+          <button class="btn sm danger" onclick="window._assistantDisable()">${esc(T('asst.disable'))}</button>
+        </div>
+      </div>
+      <div id="asst-log" class="asst-log">${renderAssistantLogInner()}</div>
+      <div class="row" style="gap:8px;margin-top:12px">
+        <input class="input grow" id="asst-input" placeholder="${esc(T('asst.placeholder'))}" ${asst.sending ? 'disabled' : ''}
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();window._assistantSend()}">
+        <button class="btn primary" id="asst-send" onclick="window._assistantSend()" ${asst.sending ? 'disabled' : ''}>${esc(T('asst.send'))}</button>
+      </div>
+      <div class="faint" style="font-size:11px;margin-top:10px">${esc(T('asst.poweredBy'))}</div>
+      ${assistantSupportLinks()}
+    </div>
+    <div class="card" style="max-width:820px;margin:14px auto 0;display:flex;flex-direction:column;gap:14px">
+      <div class="card-head"><h2 class="card-title" style="font-size:14px">${esc(T('asst.guideTitle'))}</h2></div>
+      ${assistantGuide()}
+      ${assistantExampleChips()}
+    </div>
+  </div>`
+}
+
+function renderAssistantLogInner() {
+  if (asst.history.length === 0 && !asst.pendingAction && !asst.sending) {
+    return `<div class="empty" style="padding:30px"><b>${esc(T('asst.welcome'))}</b></div>`
+  }
+  let html = asst.history.map(m => `<div class="asst-msg ${esc(m.role)}"><div class="asst-bubble">${esc(m.content)}</div></div>`).join('')
+  if (asst.sending) {
+    html += `<div class="asst-msg assistant"><div class="asst-bubble faint">${esc(T('asst.thinking'))}</div></div>`
+  }
+  if (asst.pendingAction) {
+    html += `<div class="asst-action-card">
+      <div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px">${esc(T('asst.confirmTitle'))}</div>
+      <div style="font-weight:700;margin:5px 0 12px">${esc(assistantActionText(asst.pendingAction))}</div>
+      <div class="row" style="gap:8px">
+        <button class="btn sm" onclick="window._assistantCancelAction()">${esc(T('common.cancel'))}</button>
+        <button class="btn sm primary" onclick="window._assistantConfirmAction()">${esc(T('asst.confirm'))}</button>
+      </div>
+    </div>`
+  }
+  if (asst.error) {
+    html += `<div class="asst-msg assistant"><div class="asst-bubble" style="color:var(--err)">${esc(asst.error)}</div></div>`
+  }
+  return html
+}
+
+// Redraws only the log + input, so a message round-trip never disturbs the
+// rest of the page (or gets clobbered by the periodic background refresh's
+// full render() — that one just redraws the same state idempotently anyway).
+function renderAssistantLog() {
+  const el = $('#asst-log')
+  if (!el) return
+  el.innerHTML = renderAssistantLogInner()
+  el.scrollTop = el.scrollHeight
+  const input = $('#asst-input'), btn = $('#asst-send')
+  if (input) input.disabled = asst.sending
+  if (btn) btn.disabled = asst.sending
+}
+
+window._assistantEnable = async () => {
+  try {
+    await api('SetAssistantEnabled', true)
+    await loadAssistantState()
+    render()
+  } catch (e) { toast(e.message || T('ui.opFailed'), 'err') }
+}
+
+window._assistantDisable = async () => {
+  try { await api('SetAssistantEnabled', false) } catch (e) {}
+  asst.enabled = false; asst.history = []; asst.pendingAction = null; asst.error = ''
+  render()
+}
+
+window._assistantReset = async () => {
+  try { await api('AssistantReset') } catch (e) {}
+  asst.history = []; asst.pendingAction = null; asst.error = ''
+  renderAssistantLog()
+}
+
+window._assistantSend = async () => {
+  const input = $('#asst-input')
+  const text = (input?.value || '').trim()
+  if (!text || asst.sending) return
+  input.value = ''
+  asst.error = ''
+  asst.history.push({ role: 'user', content: text })
+  asst.sending = true
+  renderAssistantLog()
+  try {
+    const r = await api('AssistantAsk', text)
+    asst.sending = false
+    if (r.action) asst.pendingAction = r.action
+    else if (r.clarify) asst.history.push({ role: 'assistant', content: assistantClarifyText(r.clarify) })
+    else if (r.text) asst.history.push({ role: 'assistant', content: r.text })
+  } catch (e) {
+    asst.sending = false
+    asst.error = e.message || T('ui.opFailed')
+  }
+  renderAssistantLog()
+  input?.focus()
+}
+
+window._assistantConfirmAction = async () => {
+  const a = asst.pendingAction
+  if (!a) return
+  asst.pendingAction = null
+  asst.history.push({ role: 'assistant', content: '✓ ' + assistantActionText(a) })
+  renderAssistantLog()
+  try {
+    await api('AssistantConfirm', a.id)
+    toast(T('asst.actionDone'), 'ok')
+    await refreshHosts()
+  } catch (e) {
+    toast(T('asst.actionFailed', { e: e.message || T('ui.opFailed') }), 'err')
+  }
+}
+
+window._assistantCancelAction = () => {
+  const a = asst.pendingAction
+  if (!a) return
+  asst.pendingAction = null
+  try { api('AssistantCancel', a.id) } catch (e) {}
+  asst.history.push({ role: 'assistant', content: T('asst.actionCancelled') })
+  renderAssistantLog()
+}
+
+// Fills the input with an example prompt rather than sending it straight
+// away, so someone new to this can read and edit it first.
+window._assistantExample = (text) => {
+  const input = $('#asst-input')
+  if (!input) return
+  input.value = text
+  input.focus()
 }
 
 function checkNotifications() {
