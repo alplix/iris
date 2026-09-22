@@ -30,6 +30,7 @@ machine in your fleet — local and remote — from one window.
 ## Contents
 
 [Screenshots](#screenshots) · [Features](#features) · [Separate GPU and CPU work](#separate-gpu-and-cpu-work) ·
+[AI Assistant](#ai-assistant) ·
 [Running next to BOINC](#running-next-to-boinc) · [Platforms](#platforms) · [Install](#install) ·
 [Getting started](#getting-started) · [Configuration](#configuration) ·
 [Status and roadmap](#status-and-roadmap) · [Building](#building-from-source) ·
@@ -66,6 +67,7 @@ More: [servers](docs/screenshots/hosts.png), [messages](docs/screenshots/message
 | **Statistics** | Per-project credit-history charts, transfer history, per-project disk use |
 | **Preferences** | Global preference overrides on the client, per-host and **fleet-wide** run/network modes, CPU benchmark |
 | **Hardware** | OS, CPU, cores, speed, RAM, disk, and every GPU with its VRAM per host |
+| **AI Assistant** | Optional, off by default. Chat in your own language to ask about the fleet or tell it what to do; see [AI Assistant](#ai-assistant) below |
 | **Notifications** | Desktop alerts for approaching deadlines, task errors and offline hosts; tray menu (Windows, Linux) with refresh / hide / show / quit |
 | **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — every string translated; follows the system language and can be changed in Settings; the tray menu and notifications follow it |
 | **Local client** | The bundled `irisd` is detected, added as *Local Iris* and started for you (unless you stopped it) |
@@ -127,6 +129,30 @@ never squeeze out CPU work and the other way round:
 
 > The separation covers *where work lives and how much room it gets*. Actually **fetching** GPU work
 > from a project needs GPU information in the scheduler request, which is on the roadmap.
+
+## AI Assistant
+
+Iris can talk to [Tilvar AI](https://athena.org.tr), a small chat model, so people who would rather
+ask a question in plain language than dig through menus — this was built with less technical BOINC
+users especially in mind — still get a straight answer, and can still change things if they'd
+rather say what they want than click through it.
+
+- **Off by default.** Nothing is sent anywhere until you turn it on, from the Assistant page or from
+  Settings.
+- **Ask about your fleet**: "how many Einstein@Home tasks do I finish per day?", "which of my
+  servers are offline?", "how much credit did I make this week?" — answered from your actual data.
+- **Or tell it what to do**: pause or resume a project, switch run or network mode, run a benchmark,
+  change preferences — on one server or on all of them. It always shows exactly what it's about to
+  do and waits for you to tap **Confirm**; nothing runs on its own.
+- **What's sent, and what never is**: each message — including server and project names, status,
+  credit and recent task counts — goes to the Tilvar AI service to produce a reply. A password, RPC
+  key or account key is never part of that conversation, and credential-bearing actions (adding a
+  server, attaching a project) are out of the assistant's reach entirely, on purpose. Turning the
+  assistant off clears the conversation.
+- **Shared quota**: Tilvar AI is a small, rate-limited service shared by everyone using this
+  feature, so a reply can occasionally be slow or need a retry.
+- The in-app **Assistant** page has the full explanation (and the same privacy notes) in your own
+  language, along with a few examples to try.
 
 ## Running next to BOINC
 
@@ -241,6 +267,7 @@ can be entered by address.
 | `IRIS_GUI_RPC_PORT` | environment | Port the client listens on and the manager expects (never BOINC's 31416) |
 | `IRIS_INSTANCE_ID` | environment | Lets a second copy of the manager run next to an installed one |
 | `IRIS_DEMO=1` | environment | Adds a simulated server (for development and screenshots) |
+| `IRIS_TILVAR_API_KEY` | environment | Local/dev override for the [AI Assistant](#ai-assistant)'s API key; official builds bake it in at release time instead |
 | `allow_remote_gui_rpc` | `cc_config.xml` | `0` = listen on `127.0.0.1` only |
 | `gpu_cache` block | `cc_config.xml` | [Separate GPU and CPU work](#separate-gpu-and-cpu-work) |
 | `max_ncpus`, `max_ncpus_pct` | Settings → Edit Global Prefs | How many tasks may run at once (applied live) |
