@@ -41,6 +41,14 @@ type Request struct {
 	HostInfo      *HostInfoXML `xml:"host_info"`
 	Results       []ResultXML  `xml:"result"`
 	CoreClientVer string       `xml:"core_client_version"`
+
+	// Work-fetch: without these a scheduler has no idea Iris wants any work
+	// at all and many will send none. WorkFetchRequest computes them from
+	// how many CPU cores are free and how much is already queued for this
+	// project.
+	WorkReqSeconds  float64 `xml:"work_req_seconds"`
+	CPUReqSecs      float64 `xml:"cpu_req_secs"`
+	CPUReqInstances float64 `xml:"cpu_req_instances"`
 }
 
 type HostInfoXML struct {

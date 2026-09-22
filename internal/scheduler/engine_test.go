@@ -1,6 +1,8 @@
 package scheduler
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,6 +15,8 @@ import (
 type fakeState struct {
 	mu       sync.Mutex
 	projects []ProjectInfo
+	results  []ResultInfo
+	hostInfo HostInfoSnapshot
 	messages []string
 	pending  map[string]bool
 }
@@ -27,9 +31,9 @@ func (f *fakeState) GetProjects() []ProjectInfo {
 	return append([]ProjectInfo(nil), f.projects...)
 }
 func (f *fakeState) AddResult(ResultInfo)                                           {}
-func (f *fakeState) GetResults() []ResultInfo                                       { return nil }
+func (f *fakeState) GetResults() []ResultInfo                                       { return f.results }
 func (f *fakeState) RemoveResult(string)                                            {}
-func (f *fakeState) GetHostInfo() HostInfoSnapshot                                  { return HostInfoSnapshot{} }
+func (f *fakeState) GetHostInfo() HostInfoSnapshot                                  { return f.hostInfo }
 func (f *fakeState) GetNetworkMode() int                                            { return 0 }
 func (f *fakeState) GetDiskUsage() int64                                            { return 0 }
 func (f *fakeState) SetDiskUsage(int64)                                             {}
@@ -148,6 +152,71 @@ func TestDoRPCDiscoversTheRealSchedulerURLFromTheMasterPage(t *testing.T) {
 	msgs := fs.Messages()
 	if len(msgs) == 0 || !strings.Contains(msgs[0], "Contacted") {
 		t.Errorf("expected a successful contact via the discovered scheduler URL, got %v", msgs)
+	}
+}
+
+// TestWorkFetchRequestAsksForIdleCoresOnly guards the actual bug this fixes:
+// a scheduler request with every work-fetch field at its zero value tells
+// real schedulers "I don't want anything", so a freshly attached project
+// could sit at zero tasks forever even once contact itself succeeded.
+func TestWorkFetchRequestAsksForIdleCoresOnly(t *testing.T) {
+	workSecs, cpuSecs, instances := workFetchRequest(4, 0)
+	if instances != 4 {
+		t.Errorf("4 idle cores should request 4 instances, got %v", instances)
+	}
+	if workSecs <= 0 || cpuSecs <= 0 {
+		t.Errorf("an idle machine must ask for a nonzero amount of work, got work=%v cpu=%v", workSecs, cpuSecs)
+	}
+
+	if _, _, instances := workFetchRequest(4, 2); instances != 2 {
+		t.Errorf("2 of 4 cores already queued should request 2 more instances, got %v", instances)
+	}
+
+	if workSecs, cpuSecs, instances := workFetchRequest(4, 4); workSecs != 0 || cpuSecs != 0 || instances != 0 {
+		t.Errorf("a fully queued machine should request nothing, got work=%v cpu=%v instances=%v", workSecs, cpuSecs, instances)
+	}
+
+	if _, _, instances := workFetchRequest(4, 10); instances != 0 {
+		t.Errorf("more already queued than cores should never request a negative amount, got %v", instances)
+	}
+}
+
+func TestCountQueuedForProjectIgnoresOtherProjectsAndFinishedTasks(t *testing.T) {
+	results := []ResultInfo{
+		{ProjectURL: "a", State: 0}, // downloading
+		{ProjectURL: "a", State: 2}, // computing
+		{ProjectURL: "a", State: 4}, // ready to report — no longer occupies a slot
+		{ProjectURL: "a", State: 5}, // error — likewise
+		{ProjectURL: "b", State: 0}, // a different project entirely
+	}
+	if n := countQueuedForProject(results, "a"); n != 2 {
+		t.Errorf("countQueuedForProject(a) = %d, want 2", n)
+	}
+	if n := countQueuedForProject(results, "b"); n != 1 {
+		t.Errorf("countQueuedForProject(b) = %d, want 1", n)
+	}
+}
+
+// TestDoRPCSendsANonZeroWorkRequest is an end-to-end check that the fields
+// computed above actually reach the wire — not just that the pure function
+// works in isolation.
+func TestDoRPCSendsANonZeroWorkRequest(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			gotBody, _ = io.ReadAll(r.Body)
+		}
+		w.Write([]byte(`<scheduler_reply></scheduler_reply>`))
+	}))
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "X"})
+	fs.hostInfo = HostInfoSnapshot{Ncpus: 4}
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	if !bytes.Contains(gotBody, []byte("<cpu_req_instances>4")) {
+		t.Errorf("expected a request for 4 idle instances, got body:\n%s", gotBody)
 	}
 }
 

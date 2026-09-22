@@ -263,6 +263,45 @@ func (e *Engine) schedulerURLFor(ps *ProjectState, cli *Client) string {
 	return urls[0]
 }
 
+// targetBufferSecs is how much CPU time to try to keep queued per otherwise
+// idle core, roughly matching real BOINC's default "store at least ~1 day
+// of work" preference. Iris does not (yet) track per-task remaining time
+// precisely enough to fetch exactly a full day's buffer, so this is a
+// simple, honest heuristic rather than BOINC's own debt-based algorithm:
+// ask for one full core's worth of work for every core that does not
+// already have something queued for this project.
+const targetBufferSecs = 24 * 60 * 60
+
+// workFetchRequest sizes a scheduler request's work-fetch fields. Without
+// these, a scheduler has no signal that Iris wants any work at all, and
+// many will send none — a fresh attach could otherwise sit at zero tasks
+// forever even once contact succeeds.
+func workFetchRequest(ncpus, alreadyQueued int) (workReqSecs, cpuReqSecs, cpuReqInstances float64) {
+	if ncpus <= 0 {
+		ncpus = 1
+	}
+	idle := ncpus - alreadyQueued
+	if idle <= 0 {
+		return 0, 0, 0
+	}
+	cpuReqSecs = float64(idle) * targetBufferSecs
+	return cpuReqSecs, cpuReqSecs, float64(idle)
+}
+
+// countQueuedForProject counts results for url that still occupy a work
+// slot — downloading, queued or actively computing — as opposed to ones
+// merely awaiting their report (state >= 4), which a scheduler will not
+// re-send regardless.
+func countQueuedForProject(results []ResultInfo, url string) int {
+	n := 0
+	for _, r := range results {
+		if r.ProjectURL == url && r.State < 4 {
+			n++
+		}
+	}
+	return n
+}
+
 func (e *Engine) doRPC(ps *ProjectState) {
 	log.Printf("[Scheduler] RPC to %s", ps.URL)
 	// Whatever happens below, this contact has now been attempted — clear
@@ -275,6 +314,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	cli.SetSchedulerURL(e.schedulerURLFor(ps, cli))
 
 	hostInfo := e.state.GetHostInfo()
+	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
 
 	req := &Request{
 		Authenticator: ps.Authenticator,
@@ -298,7 +338,10 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			DTotal:    hostInfo.DTotal,
 			ConnType:  3,
 		},
-		CoreClientVer: product.UserAgent(),
+		CoreClientVer:   product.UserAgent(),
+		WorkReqSeconds:  workReqSecs,
+		CPUReqSecs:      cpuReqSecs,
+		CPUReqInstances: cpuReqInstances,
 	}
 
 	for _, r := range e.state.GetResults() {
