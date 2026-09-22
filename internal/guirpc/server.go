@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alplix/iris/internal/product"
 	cxml "github.com/alplix/iris/internal/xml"
 )
 
@@ -183,7 +184,7 @@ func (s *Server) dispatch(sess *session, request string) string {
 		return cxml.WrapError("unauthorized")
 	}
 	if strings.HasPrefix(req, "<exchange_versions") {
-		return cxml.WrapReply(`<server_version><major>1</major><minor>0</minor><release>0</release></server_version>`)
+		return cxml.WrapReply(serverVersionXML())
 	}
 	if strings.HasPrefix(req, "<get_state") {
 		return s.wrapCall(s.handler.GetState())
@@ -358,4 +359,12 @@ func parsePrefsPairs(x string) [][2]string {
 		}
 	}
 	return pairs
+}
+
+// serverVersionXML is the <server_version> reply built from product.Version
+// ("1.2.3"); anything unparsable reports 0.0.0 rather than a made-up number.
+func serverVersionXML() string {
+	var major, minor, release int
+	fmt.Sscanf(product.Version, "%d.%d.%d", &major, &minor, &release)
+	return fmt.Sprintf("<server_version><major>%d</major><minor>%d</minor><release>%d</release></server_version>", major, minor, release)
 }

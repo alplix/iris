@@ -15,6 +15,7 @@ import (
 	"github.com/alplix/iris/internal/detect"
 	"github.com/alplix/iris/internal/guirpc"
 	"github.com/alplix/iris/internal/prefs"
+	"github.com/alplix/iris/internal/product"
 	"github.com/alplix/iris/internal/state"
 	"github.com/alplix/iris/internal/worker"
 )
@@ -91,8 +92,8 @@ func TestRPCRequiresPassword(t *testing.T) {
 func TestRPCReportsVersionAndModes(t *testing.T) {
 	r := newRig(t)
 	c := r.client(t)
-	if c.Version != "1.0.0" {
-		t.Errorf("server version = %q, want 1.0.0", c.Version)
+	if want := strings.TrimPrefix(product.UserAgent(), product.Name+"/"); c.Version != want {
+		t.Errorf("server version = %q, want %q (product.Version)", c.Version, want)
 	}
 	if err := c.SetRunMode("never"); err != nil {
 		t.Fatal(err)
@@ -163,6 +164,7 @@ func TestRPCPrefsOverridePersists(t *testing.T) {
 
 func TestRPCHostInfoListsGPUs(t *testing.T) {
 	r := newRig(t)
+	r.st.PlatformName = "riscv64-unknown-linux-gnu"
 	r.st.HostInfo, r.st.OpenCLGpuProps = buildHostInfo(detect.Specs{
 		GPUs: []detect.GPU{{Name: "NVIDIA GeForce RTX 4090", Vendor: "NVIDIA", DedicatedMB: 24576}},
 	})
@@ -174,6 +176,9 @@ func TestRPCHostInfoListsGPUs(t *testing.T) {
 	snap := app.Normalize("h", false, cs, nil, &boinc.CcStatus{}, nil, c.Version)
 	if len(snap.HostInfo.GPUs) != 1 || snap.HostInfo.GPUs[0].Vendor != "NVIDIA" || snap.HostInfo.GPUs[0].Names[0] != "NVIDIA GeForce RTX 4090" {
 		t.Fatalf("gpus = %+v", snap.HostInfo.GPUs)
+	}
+	if snap.HostInfo.Platform != "riscv64-unknown-linux-gnu" {
+		t.Errorf("platform = %q", snap.HostInfo.Platform)
 	}
 	if snap.HostInfo.GPUs[0].VRAM != 24576*1048576 {
 		t.Errorf("vram = %d", snap.HostInfo.GPUs[0].VRAM)

@@ -152,7 +152,10 @@ func TestPlatformNamesForShippedArchitectures(t *testing.T) {
 		"linux/riscv64": "riscv64-unknown-linux-gnu",
 		"linux/ppc64le": "powerpc64le-unknown-linux-gnu",
 		"linux/ppc64":   "powerpc64-unknown-linux-gnu",
-		"windows/386":   "i686-pc-windows-gnu",
+		"windows/386":   "windows_intelx86",
+		"windows/amd64": "windows_x86_64",
+		"windows/arm64": "windows_arm64",
+		"freebsd/amd64": "x86_64-pc-freebsd",
 	}
 	for k, v := range want {
 		if platforms[k] != v {

@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sync"
 	"time"
 
 	"github.com/alplix/iris/internal/app"
+	"github.com/alplix/iris/internal/catalog"
 	"github.com/alplix/iris/internal/i18n"
 	"github.com/alplix/iris/internal/local"
 	"github.com/alplix/iris/internal/product"
@@ -23,6 +25,7 @@ type App struct {
 	daemon  *local.Daemon
 	daemonI local.Info
 	mu      sync.Mutex
+	catalog *catalog.Store
 }
 
 func NewApp() *App {
@@ -31,6 +34,7 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.catalog = catalog.NewStore(app.ConfigDir())
 	a.mgr = app.NewManager()
 	a.daemonI = local.Detect()
 	if a.daemonI.Found {
@@ -53,9 +57,10 @@ func (a *App) autoConnectLocal() {
 	if !a.daemonI.Found || a.daemonI.DataDir == "" {
 		return
 	}
+	port, _ := product.GUIRPCPort()
 	known := false
 	for _, h := range a.mgr.Store.List() {
-		if h.ID == localHostID || (isLoopback(h.Host) && h.Port == product.DefaultGUIRPCPort) {
+		if h.ID == localHostID || (isLoopback(h.Host) && h.Port == port) {
 			known = true
 			break
 		}
@@ -65,7 +70,7 @@ func (a *App) autoConnectLocal() {
 			ID:       localHostID,
 			Name:     "Local Iris",
 			Host:     "localhost",
-			Port:     product.DefaultGUIRPCPort,
+			Port:     port,
 			Password: local.ReadPassword(a.daemonI.DataDir),
 		})
 		_ = a.mgr.Store.Save()
@@ -261,6 +266,29 @@ func (a *App) StopDaemon() error {
 	st.ClientStopped = true
 	_ = app.SaveSettings(st)
 	return local.StopDaemon(a.daemon)
+}
+
+// GetProjectCatalog lists the BOINC projects a user can pick from. It answers
+// at once (cache or built-in snapshot) and refreshes itself in the background.
+func (a *App) GetProjectCatalog() []catalog.Project {
+	return a.catalog.Projects()
+}
+
+// GetProjectConfig asks a project's server about itself; it doubles as a
+// check that the project is reachable and has applications for a platform.
+func (a *App) GetProjectConfig(projectURL string) (*catalog.Config, error) {
+	return catalog.FetchConfig(a.ctx, projectURL)
+}
+
+// OpenURL opens a web page in the system browser. Only http(s) links are
+// opened.
+func (a *App) OpenURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return fmt.Errorf("refusing to open %q", raw)
+	}
+	wailsruntime.BrowserOpenURL(a.ctx, u.String())
+	return nil
 }
 
 // GetLanguages lists the UI languages for the picker.

@@ -114,6 +114,7 @@ export namespace app {
 	    diskTotal: number;
 	    cpid: string;
 	    gpus: GPU[];
+	    platform: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new HostSpec(source);
@@ -131,6 +132,7 @@ export namespace app {
 	        this.diskTotal = source["diskTotal"];
 	        this.cpid = source["cpid"];
 	        this.gpus = this.convertValues(source["gpus"], GPU);
+	        this.platform = source["platform"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -436,6 +438,65 @@ export namespace app {
 	        this.when = source["when"];
 	        this.up = source["up"];
 	        this.down = source["down"];
+	    }
+	}
+
+}
+
+export namespace catalog {
+	
+	export class Config {
+	    name: string;
+	    masterUrl: string;
+	    accountCreationDisabled: boolean;
+	    minPasswordLength: number;
+	    termsOfUse?: string;
+	    platforms: string[];
+	    webRpcUrlBase?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Config(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.masterUrl = source["masterUrl"];
+	        this.accountCreationDisabled = source["accountCreationDisabled"];
+	        this.minPasswordLength = source["minPasswordLength"];
+	        this.termsOfUse = source["termsOfUse"];
+	        this.platforms = source["platforms"];
+	        this.webRpcUrlBase = source["webRpcUrlBase"];
+	    }
+	}
+	export class Project {
+	    name: string;
+	    url: string;
+	    web?: string;
+	    area?: string;
+	    sub?: string;
+	    description?: string;
+	    home?: string;
+	    image?: string;
+	    platforms?: string[];
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Project(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.web = source["web"];
+	        this.area = source["area"];
+	        this.sub = source["sub"];
+	        this.description = source["description"];
+	        this.home = source["home"];
+	        this.image = source["image"];
+	        this.platforms = source["platforms"];
+	        this.source = source["source"];
 	    }
 	}
 

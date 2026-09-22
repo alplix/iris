@@ -1,40 +1,156 @@
 # Iris
 
-**Iris** is a volunteer-computing grid in one package: a lightweight, BOINC-compatible compute
-**client** (`irisd`) plus a native desktop **manager** (`iris`) for every machine in your fleet.
+[![CI](https://github.com/alplix/iris/actions/workflows/ci.yml/badge.svg)](https://github.com/alplix/iris/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/alplix/iris)](https://github.com/alplix/iris/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-- **Iris client (`irisd`)** — downloads work from BOINC-compatible project servers, runs it on your
-  CPU/GPU, and reports results back. Pure Go, zero external dependencies, single static binary.
-- **Iris manager (`iris`)** — monitors and controls many clients (local and remote) from one window:
-  tasks, projects, transfers, preferences, statistics, notifications.
+**Iris** is a volunteer-computing grid in one package: a small, dependency-free compute
+**client** (`irisd`) and a native desktop **manager** (`iris`) that watches and controls every
+machine in your fleet — local and remote — from one window.
 
-Built with **Go + [Wails v2](https://wails.io)** for the desktop UI. Native WebView on every
-platform — no browser, no Electron. The manager speaks the BOINC **GUI RPC** protocol, so it can
-manage `irisd` clients and other BOINC-compatible clients alike.
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Iris dashboard" width="900">
+</p>
+
+- **`irisd`, the client** — pure Go, one static binary, no runtime dependencies. Talks to
+  BOINC-style project schedulers, transfers and verifies files, keeps GPU and CPU work apart, and
+  exposes BOINC's GUI RPC protocol behind a password.
+- **`iris`, the manager** — Go + [Wails](https://wails.io) (native WebView, no Electron). Tasks,
+  projects, transfers, statistics, hardware, notifications, a project catalog, nine languages,
+  light and dark themes. It speaks GUI RPC, so it can also monitor other BOINC-compatible clients.
+
+> **Status — please read.** Iris is young. The manager is complete, and the client's plumbing
+> (scheduler requests, file transfers, GUI RPC, credit and statistics, preferences, hardware
+> detection) is implemented and tested. What it **cannot do yet** is run the science applications of
+> real BOINC projects: application versions from the scheduler reply are not downloaded, there is no
+> BOINC API runtime for the apps, and GPU work is not requested. See
+> [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris is a manager for
+> your machines and a foundation for the client, not a drop-in replacement for the BOINC client.
+
+## Contents
+
+[Screenshots](#screenshots) · [Features](#features) · [Separate GPU and CPU work](#separate-gpu-and-cpu-work) ·
+[Running next to BOINC](#running-next-to-boinc) · [Platforms](#platforms) · [Install](#install) ·
+[Getting started](#getting-started) · [Configuration](#configuration) ·
+[Status and roadmap](#status-and-roadmap) · [Building](#building-from-source) ·
+[Architecture](#architecture) · [License](#license)
+
+## Screenshots
+
+Screenshots are taken from the real application, using simulated servers plus the local client of
+the machine they were captured on.
+
+| | |
+|---|---|
+| ![Tasks](docs/screenshots/tasks.png) **Tasks** — progress, elapsed time, ETA, deadlines, resources; pause, resume and abort per task | ![Projects](docs/screenshots/projects.png) **Projects** — credit and RAC per host, suspend, update, allow/stop new work, detach |
+| ![Add project](docs/screenshots/add-project-selected.png) **Add project** — pick from the catalog; the project's server is checked live | ![Hardware](docs/screenshots/settings-hardware.png) **Hardware** — CPU, cores, speed, RAM, disk and every GPU with its real VRAM |
+| ![Statistics](docs/screenshots/stats.png) **Statistics** — credit history per project, transfer history, disk use | ![Transfers](docs/screenshots/transfers.png) **Transfers** — live progress, retry and abort |
+| ![Light theme](docs/screenshots/dashboard-light.png) **Light theme** | ![Turkish](docs/screenshots/dashboard-tr.png) **Nine languages** — here Turkish, picked from the system language |
+
+More: [servers](docs/screenshots/hosts.png), [messages](docs/screenshots/messages.png),
+[settings](docs/screenshots/settings.png), [the empty catalog dialog](docs/screenshots/add-project.png),
+[the catalog in Turkish](docs/screenshots/add-project-selected-tr.png).
 
 ## Features
 
+### Manager
+
 | Area | What you can do |
 |---|---|
-| **Compute client** | Attach to projects, fetch work, run tasks in a slot sandbox, upload results, GPU/CPU resource control |
-| **Fleet dashboard** | Live totals (running / paused / queued), RAC & credit, per-host activity sparkline, recent client messages |
-| **Tasks** | Progress, elapsed/CPU time, ETA, deadlines, GPU/CPU resources; pause / resume / abort per task; filters + search |
-| **Projects** | Attach (with email/password authenticator lookup), detach, suspend/resume, update, no-more-work / allow-work |
-| **Transfers** | Live upload/download progress with retry & abort |
+| **Fleet dashboard** | Live totals (running / paused / queued), RAC and credit, per-host activity, recent client messages |
+| **Tasks** | Progress, elapsed/CPU time, ETA, deadlines, CPU/GPU resource; pause / resume / abort; filters and search across tasks, projects and servers |
+| **Projects** | Attach, detach, suspend/resume, update, allow / stop new work; account lookup by e-mail + password |
+| **Project catalog** | Every project on BOINC's official list plus a few well-known others, searchable, filterable by science area, with a badge showing whether the project has applications for *the server you are attaching to*. Choosing one asks the project's server (`get_project_config.php`, the call the BOINC manager makes) whether it is reachable, whether new accounts can be created from a client, and which platforms it supports. Website and *Create account* links open in your browser |
+| **Transfers** | Live upload/download progress with retry and abort |
 | **Messages** | Severity-highlighted client log across all servers |
-| **Statistics** | Per-project credit-history charts (365 days), transfer history, per-project disk usage |
-| **Preferences** | Global-pref overrides stored on the client (`max_ncpus_pct`/`max_ncpus` take effect immediately), per-host & **fleet-wide** run/network modes, CPU benchmark |
-| **Hardware** | OS, CPU, cores, FLOPS, RAM, disk, GPU list with VRAM per host |
-| **Notifications** | Desktop alerts for deadlines, task errors and offline hosts; tray menu with refresh/hide/show |
-| **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — picked from the system language, changeable in Settings |
-| **Local client** | Auto-detect (and start/stop) the bundled `irisd` client right from Settings |
+| **Statistics** | Per-project credit-history charts, transfer history, per-project disk use |
+| **Preferences** | Global preference overrides on the client, per-host and **fleet-wide** run/network modes, CPU benchmark |
+| **Hardware** | OS, CPU, cores, speed, RAM, disk, and every GPU with its VRAM per host |
+| **Notifications** | Desktop alerts for approaching deadlines, task errors and offline hosts; tray menu (Windows, Linux) with refresh / hide / show / quit |
+| **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — every string translated; follows the system language and can be changed in Settings; the tray menu and notifications follow it |
+| **Local client** | The bundled `irisd` is detected, added as *Local Iris* and started for you (unless you stopped it) |
+
+### Client (`irisd`)
+
+- **Scheduler protocol**: builds scheduler requests with host information, reads the reply, records
+  assigned results, reports finished ones, writes the project's credit and RAC back into its state
+  and keeps a per-day credit history.
+- **Robust transfers**: downloads have no whole-request timeout (large work files), a stall
+  watchdog, cancellation, `.part` files that never look complete, and **MD5 verification** of every
+  file that comes with a hash; a bad file is deleted, never executed.
+- **Security**: every GUI RPC connection must complete BOINC's challenge–response handshake with a
+  random 128-bit password (`gui_rpc_auth.cfg`, owner-only); nothing is answered before that.
+- **Hardware detection** on Windows, Linux and macOS, on x86, ARM, RISC-V and POWER: CPU name and
+  vendor (also from the device tree of single-board computers), RAM and disk without external
+  tools, and GPUs with their **real VRAM** — driver-reported 64-bit values on Windows (not the
+  4 GB-capped `AdapterRAM`), `nvidia-smi`, sysfs (amdgpu) and `system_profiler`. CPUs it does not
+  recognise are **measured** at start-up instead of guessed.
+- **Preferences**: `global_prefs_override.xml`; `max_ncpus` and `max_ncpus_pct` take effect
+  immediately, the rest is stored and reported.
+- **Operations**: real CPU benchmark on demand, live transfer list with abort/retry, daily transfer
+  history, `--daemon` detaches and logs to `irisd.log`, `--stop` authenticates.
+
+## Separate GPU and CPU work
+
+Iris keeps GPU work and CPU work apart, each with its own disk share, so a large GPU work buffer can
+never squeeze out CPU work and the other way round:
+
+| | CPU work | GPU work |
+|---|---|---|
+| Slots (task working directories) | `slots/` | `slots_gpu/` |
+| Project files (applications, data) | `projects/` | `projects_gpu/` |
+| Download cache | `cache/` | `cache_gpu/` |
+| Size limit (`cc_config.xml`) | `cpu_cache_size_mb` (default 4096) | `cache_size_mb` (default 2048) |
+
+- A result is classed as GPU work from its plan class or command line (`cuda`, `opencl`, `gpu`).
+- **The limits are enforced.** When one class has used its share, the client stops *starting*
+  work of that class, logs it once in a while, and keeps starting the other class.
+- With `separate_slots` / `separate_projects` set to `false` the two classes share directories, and
+  then also one limit (the CPU one).
+- `enabled` switches the limits off; a size of `0` means unlimited.
+- The manager's **Stats → Disk usage** shows the space each project takes.
+
+```xml
+<cc_config>
+  <options>
+    <allow_remote_gui_rpc>1</allow_remote_gui_rpc>
+  </options>
+  <gpu_cache>
+    <enabled>1</enabled>
+    <cache_size_mb>2048</cache_size_mb>       <!-- GPU work: slots_gpu, projects_gpu, cache_gpu -->
+    <cpu_cache_size_mb>4096</cpu_cache_size_mb> <!-- CPU work: slots, projects, cache -->
+    <separate_slots>1</separate_slots>
+    <separate_projects>1</separate_projects>
+  </gpu_cache>
+</cc_config>
+```
+
+> The separation covers *where work lives and how much room it gets*. Actually **fetching** GPU work
+> from a project needs GPU information in the scheduler request, which is on the roadmap.
+
+## Running next to BOINC
+
+Iris is built to coexist with a stock BOINC client on the same machine. Nothing is shared:
+
+| | Iris | BOINC |
+|---|---|---|
+| GUI RPC port | `31418` (`IRIS_GUI_RPC_PORT`; `31416` is refused) | `31416` |
+| Client data | `%ProgramData%\Iris` / `~/.local/share/iris` / `~/Library/Application Support/Iris` | `%ProgramData%\BOINC` / `/var/lib/boinc-client` / `/Library/Application Support/BOINC Data` |
+| Manager settings | `%APPDATA%\iris` / `~/.config/iris` | BOINC Manager's own |
+| Programs | `iris`, `irisd` | `boincmgr`, `boinc` |
+| Host identity on project servers | random ID stored in `host_cpid.txt`, per installation | BOINC's own |
+
+Each client registers as its own host on a project, and no hardware identifier is sent. The one
+thing the two cannot avoid sharing is the hardware: running both means both compute, so lower
+`max_ncpus_pct` in Iris' preferences (or set one client to *never*) if you want to split the CPU.
+The manager can also monitor BOINC clients — add them as a server on port `31416`.
 
 ## Platforms
 
 | OS | Architectures | Packaging |
 |---|---|---|
 | Windows 10/11 | amd64, arm64 | NSIS installer + portable zip (WebView2 automatic) |
-| macOS | amd64, arm64 | `.app` bundle (zip) |
+| macOS | amd64, arm64 | `.app` bundle (zip); no tray icon |
 | Linux | amd64, arm64 | portable `.tar.gz` (GTK3 + WebKitGTK 4.1 required) |
 
 Every release bundles `irisd` alongside the manager. The manager auto-detects it (bundled copy
@@ -60,13 +176,10 @@ The client's tests run on all of these in CI (through QEMU where the runner is x
 
 - **Work availability is up to each project.** A project only sends tasks for platforms it has
   applications for, and many projects have none for 32-bit ARM, RISC-V or POWER. Iris reports the
-  standard BOINC platform name of the machine (`riscv64-unknown-linux-gnu`,
-  `powerpc64le-unknown-linux-gnu`, `arm-unknown-linux-gnueabihf`, `i686-pc-linux-gnu`, ...).
+  standard BOINC platform name of the machine (`windows_x86_64`, `x86_64-pc-linux-gnu`,
+  `riscv64-unknown-linux-gnu`, `powerpc64le-unknown-linux-gnu`, `arm-unknown-linux-gnueabihf`, ...).
 - **32-bit PowerPC** (G3/G4/G5-era Macs and boards) is not supported: the Go toolchain has no
   32-bit PowerPC port.
-
-On boards and other CPUs Iris does not recognise it measures its own speed at startup instead of
-guessing, so a slow machine is not handed more work than it can finish.
 
 ## Install
 
@@ -76,13 +189,17 @@ Download the latest release from the [Releases page](https://github.com/alplix/i
   the manager **and** the `irisd` client to `Program Files\alplix\Iris`, adds Start-menu and desktop
   shortcuts, offers to launch Iris when it finishes, and can be removed from *Apps & features*. The
   installer speaks the same nine languages as the app and picks the one matching your Windows
-  language. Prefer no installer? Use the portable `iris-windows-*.zip`.
-- **macOS** — unzip `iris-darwin-*.zip` and move `Iris.app` to Applications.
+  language. Prefer no installer? Use the portable `iris-windows-*.zip`. The installer is not code
+  signed yet, so SmartScreen may warn about an unknown publisher.
+- **macOS** — unzip `iris-darwin-*.zip` and move `Iris.app` to Applications (unsigned: right-click →
+  Open the first time).
 - **Linux** — extract `iris-linux-*.tar.gz` (GTK3 + WebKitGTK 4.1 required).
 
 ## Getting started
 
-### 1. Run the client
+### 1. The client
+
+You normally do nothing: the manager starts `irisd` for you. To run it yourself:
 
 ```
 irisd            # run the compute client (foreground)
@@ -91,54 +208,71 @@ irisd --status   # show client status
 irisd --stop     # stop the running client
 ```
 
-The client stores its data in `%ProgramData%\Iris` (Windows), `~/Library/Application Support/Iris`
-(macOS) or `~/.local/share/iris` (Linux): `client_state.xml`, `cc_config.xml`, `gui_rpc_auth.cfg`,
-project slots and the result cache. It listens for management connections on **port 31418**
-(override with `IRIS_GUI_RPC_PORT`).
-
-> Default is `31418`, not BOINC's `31416`, so an Iris client and a stock BOINC client can coexist
-> on the same machine.
+The client keeps `client_state.xml`, `cc_config.xml`, `gui_rpc_auth.cfg`,
+`global_prefs_override.xml`, `host_cpid.txt`, the project files and the slots in its data directory
+— `%ProgramData%\Iris` (Windows), `~/Library/Application Support/Iris` (macOS) or `~/.local/share/iris`
+(Linux) — and listens for management connections on **port 31418**.
 
 Every GUI RPC connection has to authenticate: the first run generates a random password into
 `gui_rpc_auth.cfg` (owner-readable only), and the client refuses any command before the
 challenge–response handshake succeeds. Set `allow_remote_gui_rpc` to `0` in `cc_config.xml` to
 listen on `127.0.0.1` only.
 
-### 2. Manage with the GUI
+### 2. The manager
 
-1. Launch **Iris** — the manager auto-detects the local client, or you can connect to remote hosts.
-2. For remote clients, find the RPC password in `gui_rpc_auth.cfg` inside the client data directory.
-3. Open **Servers → Add Server** and enter host, port (default `31418`) and password.
-4. Iris starts clean, like the BOINC manager: on first launch it finds the bundled `irisd`, adds it as
-   **Local Iris** and starts it for you (unless you stopped it yourself). Nothing else is added.
-   Developers can get a simulated server with `IRIS_DEMO=1`.
-
-Configuration is stored in the OS config directory (`~/.config/iris` on Linux,
-`%APPDATA%\iris` on Windows, `~/Library/Application Support/iris` on macOS). Host passwords live
-in `hosts.json` (0600).
+1. Launch **Iris**. It starts clean, like the BOINC manager: it finds the bundled `irisd`, adds it as
+   **Local Iris** and starts it. Nothing else is added.
+2. For a remote client, take the password from `gui_rpc_auth.cfg` in its data directory, then open
+   **Servers → Add Server** and enter host, port (`31418`) and password.
+3. Settings are stored in the OS config directory (`%APPDATA%\iris`, `~/.config/iris`,
+   `~/Library/Application Support/iris`); host passwords live in `hosts.json` (0600).
 
 ### 3. Attach a project
 
-Use the manager's **Projects → Attach** (project master URL + email/password). The manager sends
-the attach request over GUI RPC; the client contacts the project scheduler, joins, downloads work
-and starts computing automatically.
+**Projects → Add Project**, choose a server, then a project from the catalog (search, filter by
+area; a green badge means the project has applications for that server's platform). Enter your
+account key, or e-mail and password to look it up, and attach. Projects that are not on the list
+can be entered by address.
 
-## Running next to BOINC
+## Configuration
 
-Iris is built to coexist with a stock BOINC client on the same machine. Nothing is shared:
-
-| | Iris | BOINC |
+| Setting | Where | Effect |
 |---|---|---|
-| GUI RPC port | `31418` (`IRIS_GUI_RPC_PORT`; `31416` is refused) | `31416` |
-| Client data | `%ProgramData%\Iris` / `~/.local/share/iris` / `~/Library/Application Support/Iris` | `%ProgramData%\BOINC` / `/var/lib/boinc-client` / `/Library/Application Support/BOINC Data` |
-| Manager settings | `%APPDATA%\iris` / `~/.config/iris` | BOINC Manager's own |
-| Programs | `iris`, `irisd` | `boincmgr`, `boinc` |
-| Host identity on project servers | random ID stored in `host_cpid.txt`, per installation | BOINC's own |
+| `IRIS_GUI_RPC_PORT` | environment | Port the client listens on and the manager expects (never BOINC's 31416) |
+| `IRIS_INSTANCE_ID` | environment | Lets a second copy of the manager run next to an installed one |
+| `IRIS_DEMO=1` | environment | Adds a simulated server (for development and screenshots) |
+| `allow_remote_gui_rpc` | `cc_config.xml` | `0` = listen on `127.0.0.1` only |
+| `gpu_cache` block | `cc_config.xml` | [Separate GPU and CPU work](#separate-gpu-and-cpu-work) |
+| `max_ncpus`, `max_ncpus_pct` | Settings → Edit Global Prefs | How many tasks may run at once (applied live) |
 
-Each client registers as its own host on a project, and no hardware identifier is sent. The one
-thing the two cannot avoid sharing is the hardware: running both means both compute, so lower
-`max_ncpus_pct` in Iris' preferences (or set one client to *never*) if you want to split the CPU.
-The manager can also monitor BOINC clients — add them as a server on port `31416`.
+## Status and roadmap
+
+Honest overview of what exists today.
+
+**Implemented and tested**
+
+- The manager and all of its pages; nine languages; installer and archives for six platforms plus the
+  client-only builds.
+- GUI RPC server and client, including authentication; the manager against Iris's own client and
+  against simulated data. (Talking to a stock BOINC client uses the same protocol but has had far less
+  testing — reports welcome.)
+- Scheduler request/reply, file transfer with verification, credit/RAC and statistics, preferences,
+  benchmark, hardware detection, GPU/CPU work areas with enforced limits.
+
+**Not implemented yet**
+
+- **Running real BOINC applications.** The `<app_version>` entries of a scheduler reply are not
+  downloaded, the worker only runs an executable named `app` or `main` placed in the slot, and there
+  is no BOINC API runtime (`init_data.xml`, slot link files, checkpoint/heartbeat protocol, signed
+  output upload). Projects' own applications therefore do not run.
+- **Requesting GPU work**: GPU information is not sent in scheduler requests, so projects will not
+  send GPU tasks. GPUs are detected and shown, and the work areas are separate, but nothing computes
+  on them yet.
+- Work-fetch policy (how much work to ask for), multiple-project scheduling by resource share,
+  web-based preferences, proxy settings, account creation from the client.
+- Linux packages (.deb / .rpm / AppImage), code signing, a tray icon on macOS.
+
+If one of these matters to you, open an issue — the order of the roadmap follows what people ask for.
 
 ## Building from source
 
@@ -157,20 +291,32 @@ wails dev        # live development build of the manager
 wails build      # production build of the manager for the current platform
                  # (Linux with WebKitGTK 4.1: wails build -tags webkit2_41)
 go build ./cmd/irisd   # build just the compute client
+go test ./...          # tests (add -tags webkit2_41 on Linux)
 ```
+
+Developer tools:
+
+- `go run ./tools/uidev` serves the built frontend with simulated servers in a normal browser
+  (`http://127.0.0.1:5188`), with an isolated settings directory.
+- `tools/screenshots/tour.ps1` takes the README screenshots from a running copy of the app
+  (see the header of the script).
+- `go run build/gen_icon.go` regenerates every icon file; `go run internal/catalog/gen/main.go`
+  refreshes the embedded project catalog.
 
 Cross-compiling for release targets is handled by CI:
 
-- `.github/workflows/ci.yml` — vet, tests, frontend build and a Linux smoke build on every PR/push
-- `.github/workflows/release.yml` — tagged releases (`vX.Y.Z`) for Windows, macOS and Linux with
-  checksums; trigger with `git tag v1.0.0 && git push origin v1.0.0`
+- `.github/workflows/ci.yml` — formatting, vet, tests, frontend build, a Linux smoke build, and the
+  client's tests on 32-bit, ARM, RISC-V and POWER
+- `.github/workflows/release.yml` — tagged releases (`vX.Y.Z`) for Windows, macOS and Linux plus the
+  client-only builds, with checksums
 
 ## Architecture
 
 ```
 cmd/irisd/                Iris compute client (the daemon)
-cmd/iris/, main.go        Iris manager (Wails app entrypoints)
+main.go, tray*.go         Iris manager (Wails app entrypoints, system tray)
 app.go                    Wails-bound API surface (main namespace)
+tools/                    developer tools (uidev browser harness, screenshot tour)
 
 frontend/                 Vite + vanilla JS/CSS single-page UI
   src/main.js             state, rendering, Wails bindings, notifications
@@ -179,9 +325,10 @@ frontend/                 Vite + vanilla JS/CSS single-page UI
 internal/                 shared Go packages
   app/                    manager logic (unit-tested): snapshots, polling, host ops
   boinc/                  BOINC GUI-RPC client (xmlrpc-over-TCP)
-  cache/                  result cache (CPU/GPU, separate slots & projects)
+  cache/                  CPU/GPU work areas: separate slots, project files, cache, enforced limits
+  catalog/                project catalog (BOINC's list, embedded snapshot, live server check)
   config/                 cc_config handling + data directory resolution
-  detect/                 host hardware/GPU/CPU probe
+  detect/                 host hardware probe: CPU, RAM, disk, GPUs and VRAM, benchmark
   guirpc/                 GUI-RPC server the manager talks to (per-connection authentication)
   i18n/                   embedded UI translations, served to the frontend as `GetTranslations`
   local/                  local daemon detection & lifecycle management
@@ -203,12 +350,6 @@ calls plus a single event channel (`notice`) for deadline/error/offline notifica
 2. `git tag v1.0.0 && git push origin v1.0.0`
 3. Download the release assets; each job uploads `SHA256SUMS.txt` alongside the archives.
 
-## Roadmap
-
-- .deb / .rpm / AppImage packaging for Linux
-- Automatic `irisd` first-run install flow inside the manager
-
 ## License
 
-MIT — see [LICENSE](LICENSE). The manager works with BOINC-compatible servers; buy-in from a
-project scheduler is required to receive work.
+MIT — see [LICENSE](LICENSE).

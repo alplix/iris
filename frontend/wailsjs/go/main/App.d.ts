@@ -4,6 +4,7 @@ import {main} from '../models';
 import {time} from '../models';
 import {app} from '../models';
 import {i18n} from '../models';
+import {catalog} from '../models';
 
 export function AddHost(arg1:string,arg2:string,arg3:number,arg4:string):Promise<main.HostCfgJSON>;
 
@@ -43,6 +44,10 @@ export function GetLanguages():Promise<Array<i18n.Language>>;
 
 export function GetPrefs(arg1:string):Promise<Record<string, string>>;
 
+export function GetProjectCatalog():Promise<Array<catalog.Project>>;
+
+export function GetProjectConfig(arg1:string):Promise<catalog.Config>;
+
 export function GetSnapshot(arg1:string):Promise<app.Snapshot>;
 
 export function GetStats(arg1:string):Promise<Array<app.StatSeries>>;
@@ -54,6 +59,8 @@ export function GetVersion():Promise<Record<string, string>>;
 export function GetXferHistory(arg1:string):Promise<Array<app.XferPoint>>;
 
 export function LookupAccount(arg1:string,arg2:string,arg3:string):Promise<string>;
+
+export function OpenURL(arg1:string):Promise<void>;
 
 export function ProjColor(arg1:string):Promise<string>;
 

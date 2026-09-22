@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alplix/iris/internal/boinc"
+	"github.com/alplix/iris/internal/product"
 )
 
 type mockProject struct {
@@ -47,7 +48,7 @@ type Mock struct {
 func NewMock(cfg HostCfg) *Mock {
 	m := &Mock{
 		cfg:     cfg,
-		version: "Iris/1.0.0",
+		version: product.UserAgent(),
 		runMode: "auto",
 		netMode: "always",
 		prefs:   map[string]string{},
@@ -218,6 +219,7 @@ func (m *Mock) Snapshot() *Snapshot {
 	st.HostInfo.DFree = boinc.Num(987654321098)
 	st.HostInfo.DTotal = boinc.Num(2000398934016)
 	st.HostInfo.BoincVer = "8.2.4"
+	st.PlatformName = "windows_x86_64"
 
 	for _, t := range m.tasks {
 		if t.t.Status != StatusRunning {
