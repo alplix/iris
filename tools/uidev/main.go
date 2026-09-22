@@ -24,14 +24,17 @@ import (
 	"time"
 
 	"github.com/alplix/iris/internal/app"
+	"github.com/alplix/iris/internal/assistant"
 	"github.com/alplix/iris/internal/catalog"
 	"github.com/alplix/iris/internal/i18n"
 	"github.com/alplix/iris/internal/product"
+	"github.com/alplix/iris/internal/tilvar"
 )
 
 type API struct {
 	mgr *app.Manager
 	cat *catalog.Store
+	ast *assistant.Session
 }
 
 type hostJSON struct {
@@ -111,6 +114,30 @@ func (a *API) GetProjectConfig(u string) (*catalog.Config, error) {
 }
 func (a *API) OpenURL(u string) error { fmt.Println("open:", u); return nil }
 
+// uidevAssistantOn mirrors app.Settings.AssistantEnabled, kept in memory
+// only (uidev never touches the real settings file).
+var uidevAssistantOn bool
+
+func (a *API) AssistantAvailable() bool { return tilvar.Available() }
+func (a *API) AssistantEnabled() bool   { return tilvar.Available() && uidevAssistantOn }
+func (a *API) SetAssistantEnabled(on bool) error {
+	uidevAssistantOn = on
+	a.ast.Reset()
+	return nil
+}
+func (a *API) AssistantHistory() []tilvar.Message { return a.ast.History() }
+func (a *API) AssistantAsk(text string) (assistant.Reply, error) {
+	if !a.AssistantEnabled() {
+		return assistant.Reply{}, fmt.Errorf("the assistant is turned off")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	return a.ast.Ask(ctx, text)
+}
+func (a *API) AssistantConfirm(id string) error { return a.ast.Confirm(id) }
+func (a *API) AssistantCancel(id string)        { a.ast.Cancel(id) }
+func (a *API) AssistantReset()                  { a.ast.Reset() }
+
 // stub makes window.go.main.App call the API above and applies the query
 // parameters used for scripted screenshots.
 const stub = `<script>
@@ -156,7 +183,11 @@ func main() {
 	}
 	os.Setenv("IRIS_DEMO", "1")
 
-	api := &API{mgr: app.NewManager(), cat: catalog.NewStore(filepath.Join(tmp, "cat"))}
+	mgr := app.NewManager()
+	api := &API{mgr: mgr, cat: catalog.NewStore(filepath.Join(tmp, "cat")), ast: assistant.NewSession(mgr)}
+	if v := os.Getenv("IRIS_TILVAR_API_KEY"); v != "" {
+		uidevAssistantOn = true // let a developer flip it on with a real key without clicking through Settings
+	}
 	api.mgr.Start()
 	rv := reflect.ValueOf(api)
 

@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/alplix/iris/internal/app"
+	"github.com/alplix/iris/internal/assistant"
 	"github.com/alplix/iris/internal/catalog"
 	"github.com/alplix/iris/internal/i18n"
 	"github.com/alplix/iris/internal/local"
 	"github.com/alplix/iris/internal/product"
+	"github.com/alplix/iris/internal/tilvar"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -20,12 +22,13 @@ const (
 )
 
 type App struct {
-	ctx     context.Context
-	mgr     *app.Manager
-	daemon  *local.Daemon
-	daemonI local.Info
-	mu      sync.Mutex
-	catalog *catalog.Store
+	ctx       context.Context
+	mgr       *app.Manager
+	daemon    *local.Daemon
+	daemonI   local.Info
+	mu        sync.Mutex
+	catalog   *catalog.Store
+	assistant *assistant.Session
 }
 
 func NewApp() *App {
@@ -36,6 +39,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.catalog = catalog.NewStore(app.ConfigDir())
 	a.mgr = app.NewManager()
+	a.assistant = assistant.NewSession(a.mgr)
 	a.daemonI = local.Detect()
 	if a.daemonI.Found {
 		a.daemon = local.NewDaemon(a.daemonI)
@@ -289,6 +293,69 @@ func (a *App) OpenURL(raw string) error {
 	}
 	wailsruntime.BrowserOpenURL(a.ctx, u.String())
 	return nil
+}
+
+// ---------------------------------------------------------------- Assistant
+//
+// The assistant sends a summary of the fleet (server names, project names,
+// status, credit/RAC, recent task counts — never a password or account key)
+// to Iris' own hosted Tilvar service on every message. It is off until the
+// person explicitly turns it on.
+
+// AssistantAvailable reports whether this build has the assistant at all
+// (release builds do; a from-source build without the embedded key does not,
+// unless IRIS_TILVAR_API_KEY is set for development).
+func (a *App) AssistantAvailable() bool { return tilvar.Available() }
+
+// AssistantEnabled reports whether the person has turned the assistant on.
+func (a *App) AssistantEnabled() bool {
+	return tilvar.Available() && app.LoadSettings().AssistantEnabled
+}
+
+// SetAssistantEnabled turns the assistant on or off and forgets the current
+// conversation either way (turning it back on starts fresh).
+func (a *App) SetAssistantEnabled(on bool) error {
+	s := app.LoadSettings()
+	s.AssistantEnabled = on
+	if err := app.SaveSettings(s); err != nil {
+		return err
+	}
+	a.assistant.Reset()
+	return nil
+}
+
+// AssistantHistory returns the visible conversation so far (never persisted
+// to disk; it is gone if Iris restarts).
+func (a *App) AssistantHistory() []tilvar.Message {
+	return a.assistant.History()
+}
+
+// AssistantAsk sends a message to the assistant. The caller must have
+// checked AssistantEnabled first; this only re-checks it as a safety net so
+// the frontend can never accidentally phone home with the toggle off.
+func (a *App) AssistantAsk(text string) (assistant.Reply, error) {
+	if !a.AssistantEnabled() {
+		return assistant.Reply{}, fmt.Errorf("the assistant is turned off")
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
+	defer cancel()
+	return a.assistant.Ask(ctx, text)
+}
+
+// AssistantConfirm runs a control action the assistant proposed and the
+// person approved in the UI.
+func (a *App) AssistantConfirm(id string) error {
+	return a.assistant.Confirm(id)
+}
+
+// AssistantCancel discards a proposed action without running it.
+func (a *App) AssistantCancel(id string) {
+	a.assistant.Cancel(id)
+}
+
+// AssistantReset clears the conversation.
+func (a *App) AssistantReset() {
+	a.assistant.Reset()
 }
 
 // GetLanguages lists the UI languages for the picker.
