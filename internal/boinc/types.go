@@ -42,6 +42,7 @@ func (n Num) B() bool    { return float64(n) != 0 }
 type ClientState struct {
 	XMLName        xml.Name     `xml:"client_state"`
 	Version        string       `xml:"client_version"`
+	PlatformName   string       `xml:"platform_name"`
 	HostInfo       HostInfo     `xml:"host_info"`
 	Projects       []Project    `xml:"projects>project"`
 	Results        []Result     `xml:"results>result"`

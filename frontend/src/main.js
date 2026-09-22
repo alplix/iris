@@ -213,9 +213,12 @@ async function refreshHosts() {
 
 // The page fades in when it changes; background refreshes must not replay it.
 let animateNext = true
+// A new page starts at the top; only background refreshes keep the position.
+let scrollToTop = false
 
 function setPage(page) {
   animateNext = true
+  scrollToTop = true
   state.page = page
   state.modal = null
   state.searchQuery = ''
@@ -227,7 +230,8 @@ function setPage(page) {
 
 function render() {
   // Rebuilding the DOM would reset the scroll position of the page.
-  const scroll = $('.content')?.scrollTop || 0
+  const scroll = scrollToTop ? 0 : ($('.content')?.scrollTop || 0)
+  scrollToTop = false
   renderShell()
   renderContent()
   const content = $('.content')
@@ -1117,13 +1121,136 @@ window._showEditHost = (id) => {
   render()
 }
 
-window._showAttachProject = () => {
-  const hostOpts = state.hosts.filter(h => !h.demo).map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('')
+// ---- Add project: catalog picker ------------------------------------------
+
+// The catalog of BOINC projects and the picker's state live outside `state`
+// so that typing in the search box never re-renders the whole dialog.
+let catalog = []
+let cat = { q: '', area: '', shown: [], sel: null, cfg: null, err: '', checking: false }
+
+function hostPlatform() {
+  const id = $('#attach-host')?.value
+  return (id && state.snaps[id]?.hostInfo?.platform) || ''
+}
+
+function supportsPlatform(p, plat) {
+  return !!plat && (p.platforms || []).includes(plat)
+}
+
+function catalogFiltered() {
+  const q = cat.q.trim().toLowerCase()
+  const plat = hostPlatform()
+  const list = catalog.filter(p =>
+    (!cat.area || p.area === cat.area) &&
+    (!q || [p.name, p.area, p.sub, p.description, p.home].join(' ').toLowerCase().includes(q)))
+  // Projects that have applications for this server come first.
+  return list.sort((a, b) => (supportsPlatform(b, plat) - supportsPlatform(a, plat)) || a.name.localeCompare(b.name))
+}
+
+function renderCatalog() {
+  const listEl = $('#cat-list')
+  if (!listEl) return
+  const plat = hostPlatform()
+  cat.shown = catalogFiltered()
+  $('#cat-count').textContent = T('cat.count', { n: cat.shown.length })
+  listEl.innerHTML = cat.shown.length ? cat.shown.map((p, i) => {
+    let badge = ''
+    if (plat && (p.platforms || []).length) {
+      badge = supportsPlatform(p, plat)
+        ? `<span class="badge ready">✓ ${esc(T('cat.runs'))}</span>`
+        : `<span class="badge paused">${esc(T('cat.noRun'))}</span>`
+    }
+    return `<div class="cat-item ${cat.sel && cat.sel.url === p.url ? 'sel' : ''}" onclick="window._catPick(${i})">
+      <div class="grow" style="min-width:0">
+        <div class="cat-name">${esc(p.name)}${p.source === 'community' ? ` <span class="chip plain">${esc(T('cat.community'))}</span>` : ''}</div>
+        <div class="faint trunc" style="font-size:11.5px">${esc(p.area || '')}${p.sub ? ' · ' + esc(p.sub) : ''}</div>
+        <div class="cat-desc">${esc(p.description || '')}</div>
+      </div>${badge}</div>`
+  }).join('') : `<div class="empty" style="padding:18px"><b class="faint">${esc(T('cat.none'))}</b></div>`
+}
+
+function renderCatalogDetail() {
+  const el = $('#cat-detail')
+  if (!el) return
+  const p = cat.sel
+  if (!p) { el.innerHTML = `<div class="faint" style="font-size:12px">${esc(T('cat.pickHint'))}</div>`; return }
+  const plat = hostPlatform()
+  const lines = []
+  if (cat.checking) lines.push(`<span class="faint">${esc(T('cat.checking'))}</span>`)
+  else if (cat.err) lines.push(`<span style="color:var(--err)">${esc(T('cat.unreachable', { e: cat.err }))}</span>`)
+  else if (cat.cfg) {
+    lines.push(`<span style="color:var(--ok)">✓ ${esc(T('cat.reachable'))}</span>`)
+    if (cat.cfg.accountCreationDisabled) lines.push(`<span style="color:var(--warn)">${esc(T('cat.signupClosed'))}</span>`)
+  }
+  const plats = (cat.cfg?.platforms || []).length ? cat.cfg.platforms : (p.platforms || [])
+  if (plat && plats.length) {
+    lines.push(plats.includes(plat)
+      ? `<span style="color:var(--ok)">✓ ${esc(T('cat.platformOk', { p: plat }))}</span>`
+      : `<span style="color:var(--warn)">${esc(T('cat.platformNo', { p: plat }))}</span>`)
+  }
+  const web = p.web || p.url
+  el.innerHTML = `<div class="cat-detail">
+    <div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.5px">${esc(T('cat.selected'))}</div>
+    <div style="font-weight:700;font-size:15px">${esc(p.name)}</div>
+    <div style="color:var(--text-soft)">${esc(p.description || '')}</div>
+    ${p.home ? `<div class="faint" style="font-size:12px">${esc(p.home)}</div>` : ''}
+    <div class="row wrap" style="gap:8px;margin:4px 0">
+      <button class="btn sm" onclick="window._openUrl('${jsq(web)}')">${esc(T('cat.website'))} ↗</button>
+      <button class="btn sm" onclick="window._openUrl('${jsq(p.url.replace(/\/?$/, '/') + 'create_account_form.php')}')">${esc(T('cat.createAccount'))} ↗</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:3px;font-size:12px">${lines.join('')}</div>
+  </div>`
+}
+
+window._openUrl = async (url) => {
+  try { await api('OpenURL', url) } catch (e) { toast(e.message || T('ui.opFailed'), 'err') }
+}
+
+window._catSearch = (q) => { cat.q = q; renderCatalog() }
+window._catArea = (a) => { cat.area = a; renderCatalog() }
+window._catHost = () => { renderCatalog(); renderCatalogDetail() }
+
+window._catPick = async (i) => {
+  const p = cat.shown[i]
+  if (!p) return
+  cat.sel = p; cat.cfg = null; cat.err = ''; cat.checking = true
+  const url = $('#attach-url'); if (url) url.value = p.url
+  const lookup = $('#lookup-url'); if (lookup) lookup.value = p.url
+  const name = $('#attach-name'); if (name && !name.value) name.placeholder = p.name
+  renderCatalog(); renderCatalogDetail()
+  // Ask the project's server the way the BOINC manager does: it proves the
+  // project is alive and tells which platforms it has applications for.
+  try {
+    const cfg = await api('GetProjectConfig', p.url)
+    if (cat.sel === p) { cat.cfg = cfg; cat.checking = false }
+  } catch (e) {
+    if (cat.sel === p) { cat.err = String(e.message || e).slice(0, 120); cat.checking = false }
+  }
+  if (cat.sel === p) renderCatalogDetail()
+}
+
+window._showAttachProject = async () => {
+  try { catalog = await api('GetProjectCatalog') || [] } catch (e) { catalog = [] }
+  cat = { q: '', area: '', shown: [], sel: null, cfg: null, err: '', checking: false }
+  const hostOpts = state.hosts.map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('')
+  const areas = [...new Set(catalog.map(p => p.area).filter(Boolean))].sort()
+  const areaOpts = `<option value="">${esc(T('cat.allAreas'))}</option>` + areas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('')
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
-      <div class="modal" style="max-width:500px">
+      <div class="modal" style="max-width:680px">
         <div class="modal-head"><h3>${esc(T('proj.newTitle'))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
-        <div class="field"><label class="label">${esc(T('proj.server'))}</label><select class="select" id="attach-host">${hostOpts}</select></div>
+        <div class="field"><label class="label">${esc(T('proj.server'))}</label><select class="select" id="attach-host" onchange="window._catHost()">${hostOpts}</select></div>
+        <div class="field">
+          <label class="label">${esc(T('proj.catalog'))}</label>
+          <div class="row" style="gap:8px">
+            <input class="input" id="cat-q" placeholder="${esc(T('proj.searchCat'))}" oninput="window._catSearch(this.value)" autocomplete="off">
+            <select class="select" id="cat-area" style="max-width:230px" aria-label="${esc(T('cat.area'))}" onchange="window._catArea(this.value)">${areaOpts}</select>
+          </div>
+          <div id="cat-count" class="faint" style="font-size:11px;margin:6px 0 4px"></div>
+          <div id="cat-list" class="cat-list"></div>
+        </div>
+        <div id="cat-detail" class="field"></div>
+        <div class="faint" style="font-size:11px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.5px">${esc(T('cat.custom'))}</div>
         <div class="field"><label class="label">${esc(T('proj.url'))}</label><input class="input" id="attach-url" placeholder="${esc(T('proj.urlPh'))}"></div>
         <div class="field"><label class="label">${esc(T('proj.key'))}</label><input class="input" id="attach-auth" placeholder="${esc(T('proj.keyPh'))}"></div>
         <div class="field"><label class="label">${esc(T('ui.displayName'))}</label><input class="input" id="attach-name"></div>
@@ -1143,6 +1270,8 @@ window._showAttachProject = () => {
     </div>
   `
   render()
+  renderCatalog()
+  renderCatalogDetail()
 }
 
 window._doLookup = async () => {

@@ -78,6 +78,14 @@ export function GetPrefs(arg1) {
   return window['go']['main']['App']['GetPrefs'](arg1);
 }
 
+export function GetProjectCatalog() {
+  return window['go']['main']['App']['GetProjectCatalog']();
+}
+
+export function GetProjectConfig(arg1) {
+  return window['go']['main']['App']['GetProjectConfig'](arg1);
+}
+
 export function GetSnapshot(arg1) {
   return window['go']['main']['App']['GetSnapshot'](arg1);
 }
@@ -100,6 +108,10 @@ export function GetXferHistory(arg1) {
 
 export function LookupAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['LookupAccount'](arg1, arg2, arg3);
+}
+
+export function OpenURL(arg1) {
+  return window['go']['main']['App']['OpenURL'](arg1);
 }
 
 export function ProjColor(arg1) {

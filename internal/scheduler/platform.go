@@ -2,13 +2,14 @@ package scheduler
 
 import "runtime"
 
-// platforms maps GOOS/GOARCH to the BOINC platform names project servers know.
+// platforms maps GOOS/GOARCH to the BOINC platform names project servers know
+// (the names in BOINC's project list and in get_project_config.php).
 // Work is only handed out when a project has an application for the platform
 // (32-bit ARM, RISC-V and POWER have few or none; the project decides).
 var platforms = map[string]string{
-	"windows/amd64": "x86_64-pc-windows-gnu",
-	"windows/386":   "i686-pc-windows-gnu",
-	"windows/arm64": "aarch64-pc-windows-gnu",
+	"windows/amd64": "windows_x86_64",
+	"windows/386":   "windows_intelx86",
+	"windows/arm64": "windows_arm64",
 	"linux/amd64":   "x86_64-pc-linux-gnu",
 	"linux/386":     "i686-pc-linux-gnu",
 	"linux/arm":     "arm-unknown-linux-gnueabihf",
@@ -18,6 +19,8 @@ var platforms = map[string]string{
 	"linux/ppc64":   "powerpc64-unknown-linux-gnu",
 	"darwin/amd64":  "x86_64-apple-darwin",
 	"darwin/arm64":  "arm64-apple-darwin",
+	"freebsd/amd64": "x86_64-pc-freebsd",
+	"freebsd/386":   "i686-pc-freebsd",
 }
 
 // Platform is the BOINC platform name reported to project schedulers so they

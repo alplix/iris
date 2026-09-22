@@ -1,0 +1,522 @@
+[
+ {
+  "name": "Amicable Numbers",
+  "url": "https://sech.me/boinc/Amicable/",
+  "web": "https://sech.me/boinc/Amicable/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "'Amicable numbers' are pairs where the sum of the proper divisors of each is equal to the other number. The goal of this project is to collect all amicable numbers up to a very large limit.",
+  "home": "Independent",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Asteroids@home",
+  "url": "https://asteroidsathome.net/boinc/",
+  "web": "https://asteroidsathome.net/boinc/",
+  "area": "Physical Science",
+  "sub": "Astrophysics",
+  "description": "The aim of the project is to derive shapes and spin for a significant part of the asteroid population. As input data, we use any asteroid photometry that is available. The results are asteroid convex shape models with the direction of the spin axis and the rotation period.",
+  "home": "Charles University in Prague",
+  "image": "https://boinc.berkeley.edu/images/asteroids_logo.jpg",
+  "platforms": [
+   "aarch64-android-linux-gnu",
+   "aarch64-unknown-linux-gnu",
+   "arm-unknown-linux-gnueabihf",
+   "arm64-apple-darwin",
+   "armv6l-unknown-linux-gnueabihf",
+   "armv7l-unknown-linux-gnueabihf",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-freebsd",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "BOINC Central",
+  "url": "https://boinc.berkeley.edu/central/",
+  "web": "https://boinc.berkeley.edu/central/",
+  "area": "Multiple applications",
+  "sub": "Multiple science areas",
+  "description": "BOINC Central provides computing power to scientists from multiple institutions",
+  "home": "University of California, Berkeley",
+  "platforms": [
+   "aarch64-android-linux-gnu",
+   "aarch64-unknown-linux-gnu",
+   "arm-android-linux-gnu",
+   "arm-unknown-linux-gnueabihf",
+   "arm64-apple-darwin",
+   "i686-pc-linux-gnu",
+   "windows_arm64",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86-android-linux-gnu",
+   "x86_64-android-linux-gnu",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Climateprediction.net",
+  "url": "https://climateprediction.net/",
+  "web": "https://climateprediction.net/",
+  "area": "Earth Sciences",
+  "sub": "Climate study",
+  "description": "Investigate the approximations that have to be made in state-of-the-art climate models. By running the model thousands of times we hope to find out how the model responds to slight tweaks to these approximations - slight enough to not make the approximations any less realistic. This will allow us to improve our understanding of how sensitive our models are to small changes and also to things like changes in carbon dioxide and the sulphur cycle. This will allow us to explore how climate may change in the next century under a wide range of different scenarios.",
+  "home": "Oxford University",
+  "image": "https://boinc.berkeley.edu/images/cpn_logo_world_1.jpg",
+  "platforms": [
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "DENIS@Home",
+  "url": "https://denis.usj.es/denisathome/",
+  "web": "https://denis.usj.es/denisathome/",
+  "area": "Biology and Medicine",
+  "sub": "Medical physiology",
+  "description": "DENIS@Home does cardiac electrophysiological simulations, studying the electrical activity of the heart.",
+  "home": "San Jorge University, Zaragoza, Spain",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm64-apple-darwin",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Einstein@home",
+  "url": "https://einstein.phys.uwm.edu/",
+  "web": "https://einsteinathome.org/",
+  "area": "Physical Science",
+  "sub": "Astrophysics",
+  "description": "Einstein@Home uses your computer's idle time to search for weak astrophysical signals from spinning neutron stars (often called pulsars) using data from the LIGO gravitational-wave detectors, the Arecibo radio telescope, and the Fermi gamma-ray satellite.",
+  "home": "University of Wisconsin - Milwaukee (USA), Max Planck Institute for Gravitational Physics - Hanover (Germany)",
+  "image": "https://boinc.berkeley.edu/images/einstein.jpg",
+  "platforms": [
+   "aarch64-android-linux-gnu",
+   "aarch64-unknown-linux-gnu",
+   "arm-android-linux-gnu",
+   "arm-unknown-linux-gnueabihf",
+   "arm64-apple-darwin",
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "powerpc-apple-darwin",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Gerasim@Home",
+  "url": "https://gerasim.boinc.ru/",
+  "web": "https://gerasim.boinc.ru/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Computer engineering",
+  "description": "Testing and comparison of heuristic methods for getting separations of parallel algorithms working in the CAD system for designing logic control systems",
+  "home": "Southwest State University (Russia)",
+  "image": "https://boinc.berkeley.edu/images/gerasim.gif",
+  "platforms": [
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "GPUGrid.net",
+  "url": "https://gpugrid.net/gpugrid/",
+  "web": "https://gpugrid.net/gpugrid/",
+  "area": "Biology and Medicine",
+  "sub": "Molecular simulations of proteins",
+  "description": "GPUGrid.net opens novel computational scenarios by the first full-atom molecular dynamics code (CellMD) specially optimized to run on NVIDIA GPUs. New biomedical applications suddenly become possible giving a new role to computational biology for biomedical research.",
+  "home": "Barcelona Biomedical Research Park (PRBB)",
+  "image": "https://boinc.berkeley.edu/images/gpugrid.png",
+  "platforms": [
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "iThena",
+  "url": "https://root.ithena.net/usr/",
+  "web": "https://root.ithena.net/usr/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Computer science",
+  "description": "The goal of the iThena project is to generate a dynamic topological model of the Internet, based on measurements from distributed devices.",
+  "home": "Cyber-Complex Foundation",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm-unknown-linux-gnueabihf",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "LHC@home",
+  "url": "https://lhcathome.cern.ch/lhcathome/",
+  "web": "https://lhcathome.cern.ch/lhcathome/",
+  "area": "Physical Science",
+  "sub": "Physics",
+  "description": "The Large Hadron Collider (LHC) is a particle accelerator at CERN, the European Organization for Nuclear Research, the world's largest particle physics laboratory. It is the most powerful instrument ever built to investigate on particles proprieties. LHC@home runs simulations to improve the design of LHC and its detectors.",
+  "home": "CERN (European Organization for Nuclear Research)",
+  "image": "https://boinc.berkeley.edu/images/lhc.jpg",
+  "platforms": [
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "LODA",
+  "url": "https://boinc.loda-lang.org/loda/",
+  "web": "https://boinc.loda-lang.org/loda/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "The goal of LODA is to find new formulas and more efficient algorithms for a range of integer sequences.",
+  "home": "Independent",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm64-apple-darwin",
+   "windows_arm64",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Milkyway@home",
+  "url": "https://milkyway.cs.rpi.edu/milkyway/",
+  "web": "https://milkyway.cs.rpi.edu/milkyway/",
+  "area": "Physical Science",
+  "sub": "Astronomy",
+  "description": "The goal of Milkyway@Home is to create a highly accurate three dimensional model of the Milky Way galaxy using data gathered by the Sloan Digital Sky Survey.",
+  "home": "Rensselaer Polytechnic Institute",
+  "image": "https://boinc.berkeley.edu/images/mw.png",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Moo! Wrapper",
+  "url": "https://moowrap.net/",
+  "web": "https://moowrap.net/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Cryptography and combinatorics",
+  "description": "Run applications from distributed.net",
+  "home": "Independent",
+  "platforms": [
+   "arm-android-linux-gnu",
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "powerpc-apple-darwin",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "NFS@home",
+  "url": "https://escatter11.fullerton.edu/nfs/",
+  "web": "https://escatter11.fullerton.edu/nfs/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Factorization of large integers",
+  "description": "NFS@Home is a research project that uses Internet-connected computers to do the lattice sieving step in the Number Field Sieve factorization of large integers. As a young school student, you gained your first experience at breaking an integer into prime factors, such as 15 = 3 * 5 or 35 = 5 * 7. NFS@Home is a continuation of that experience, only with integers that are hundreds of digits long.",
+  "home": "California State University Fullerton",
+  "image": "https://boinc.berkeley.edu/images/NFS_Logo.jpg",
+  "platforms": [
+   "arm64-apple-darwin",
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-freebsd",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "NumberFields@home",
+  "url": "https://numberfields.asu.edu/NumberFields/",
+  "web": "https://numberfields.asu.edu/NumberFields/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "NumberFields@home searches for fields with special properties. The primary application of this research is in the realm of algebraic number theory. Number theorists can mine the data for interesting patterns to help them formulate conjectures about number fields. Ultimately, this research will lead to a deeper understanding of the profound properties of numbers, the basic building blocks of all mathematics.",
+  "home": "Arizona State University, school of Mathematics",
+  "image": "https://boinc.berkeley.edu/images/nf_banner_10.jpg",
+  "platforms": [
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "ODLK",
+  "url": "https://boinc.progger.info/odlk/",
+  "web": "https://boinc.progger.info/odlk/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "OLDK is building a database of canonical forms of diagonal Latin squares of the 10th order",
+  "home": "Independent",
+  "platforms": [
+   "i686-pc-freebsd",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-pc-freebsd",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "ODLK1",
+  "url": "https://boinc.multi-pool.info/latinsquares/",
+  "web": "https://boinc.multi-pool.info/latinsquares/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "OLDK is building a database of canonical forms of diagonal Latin squares of the 10th order",
+  "home": "Independent",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "i686-pc-freebsd",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-pc-freebsd",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "PrimeGrid",
+  "url": "https://www.primegrid.com/",
+  "web": "https://www.primegrid.com/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "Primegrid has multiple projects searching for different forms of very large prime numbers, including searching for the largest known prime number.",
+  "home": "Independent",
+  "image": "https://boinc.berkeley.edu/images/primegrid_logo.png",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm64-apple-darwin",
+   "i686-pc-linux-gnu",
+   "windows_arm64",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "RakeSearch",
+  "url": "https://rake.boincfast.ru/rakesearch/",
+  "web": "https://rake.boincfast.ru/rakesearch/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "The enormous size of the diagonal Latin squares space makes it unfeasible to enumerate all its objects straightforwardly in reasonable time. So, in order to discover the structure of this space, sophisticated search methods are needed. In RakeSearch project, we implement an application that picks up separate pairs of mutually orthogonal DLSs, which allows to reconstruct full graphs of their orthogonality.",
+  "home": "Karelian Research Center, Russian Academy of Sciences",
+  "platforms": [
+   "windows_x86_64"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Ramanujan Machine",
+  "url": "https://rnma.xyz/boinc/",
+  "web": "https://www.ramanujanmachine.com/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "The Ramanujan Machine uses your computer power to search for new mathematical formulas.",
+  "home": "Independent",
+  "platforms": [
+   "arm64-apple-darwin",
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "RNA World",
+  "url": "https://www.rnaworld.de/rnaworld/",
+  "web": "https://www.rnaworld.de/rnaworld/",
+  "area": "Biology and Medicine",
+  "sub": "Molecular biology",
+  "description": "RNA World seeks to identify, analyze, structurally predict and design RNA molecules on the basis of established bioinformatics software.",
+  "home": "Rechenkraft.net e.V.",
+  "image": "https://boinc.berkeley.edu/images/rna4.png",
+  "platforms": [
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Rosetta@home",
+  "url": "https://boinc.bakerlab.org/rosetta/",
+  "web": "https://boinc.bakerlab.org/rosetta/",
+  "area": "Biology and Medicine",
+  "sub": "Biology",
+  "description": "Determine the 3-dimensional shapes of proteins in research that may ultimately lead to finding cures for some major human diseases. By running Rosetta@home you will help us speed up and extend our research in ways we couldn't possibly attempt without your help. You will also be helping our efforts at designing new proteins to fight diseases such as COVID-19, HIV, malaria, cancer, and Alzheimer's",
+  "home": "University of Washington",
+  "image": "https://boinc.berkeley.edu/images/rosetta_at_home_logo.jpg",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm-android-linux-gnu",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "SIDock@home",
+  "url": "https://www.sidock.si/sidock/",
+  "web": "https://www.sidock.si/sidock/",
+  "area": "Biology and Medicine",
+  "sub": "Biomedicine",
+  "description": "Study drugs to fight SARS-CoV-2",
+  "home": "The COVID.SI project and the Karelian Research Center of the Russian Academy of Sciences",
+  "image": "https://boinc.berkeley.edu/images/sidock.png",
+  "platforms": [
+   "arm-unknown-linux-gnueabihf",
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "SRBase",
+  "url": "https://srbase.my-firewall.org/sr5/",
+  "web": "https://srbase.my-firewall.org/sr5/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "SRBase is a mathematical research project that uses Internet-connected computers trying to solve Sierpinski / Riesel Bases up to 1030.",
+  "home": "Independent",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "TN-Grid",
+  "url": "https://gene.disi.unitn.it/test/",
+  "web": "https://gene.disi.unitn.it/test/",
+  "area": "Biology and Medicine",
+  "sub": "Genomics",
+  "description": "Gene network inference for biomedical research (University of Trento).",
+  "platforms": [
+   "aarch64-openwrt-linux-musl",
+   "aarch64-unknown-linux-gnu",
+   "arm-openwrt-linux-muslgnueabi",
+   "arm-unknown-linux-gnueabihf",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "community"
+ },
+ {
+  "name": "World Community Grid",
+  "url": "https://www.worldcommunitygrid.org/",
+  "web": "https://www.worldcommunitygrid.org/",
+  "area": "Multiple applications",
+  "sub": "Medical, environmental and other humanitarian research",
+  "description": "To further critical non-profit research on some of humanity's most pressing problems by creating the world's largest volunteer computing grid. Research includes HIV-AIDS, cancer, tropical and neglected diseases, solar energy, clean water and many more.",
+  "home": "Krembil Research Institute",
+  "image": "https://boinc.berkeley.edu/images/wcg.jpg",
+  "platforms": [
+   "aarch64-android-linux-gnu",
+   "arm-android-linux-gnu",
+   "arm-unknown-linux-gnueabihf",
+   "i686-pc-linux-gnu",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "YAFU",
+  "url": "https://yafu.myfirewall.org/yafu/",
+  "web": "https://yafu.myfirewall.org/yafu/",
+  "area": "Mathematics, computing, and games",
+  "sub": "Mathematics",
+  "description": "YAFU's goal is to factor numbers of up to 149 digits which are needed to bring Aliquot Sequences to a size of at least 140.",
+  "home": "Independent",
+  "platforms": [
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ },
+ {
+  "name": "Yoyo@home",
+  "url": "https://www.rechenkraft.net/yoyo/",
+  "web": "https://www.rechenkraft.net/yoyo/",
+  "area": "Multiple applications",
+  "sub": "Mathematics",
+  "description": "Yoyo@home is an adapter between BOINC and several existing volunteer computing projects.",
+  "home": "Independent",
+  "platforms": [
+   "aarch64-unknown-linux-gnu",
+   "arm-android-linux-gnu",
+   "arm-linux-gnu",
+   "arm-unknown-linux-gnueabi",
+   "arm-unknown-linux-gnueabihf",
+   "i686-apple-darwin",
+   "i686-pc-linux-gnu",
+   "powerpc-apple-darwin",
+   "powerpc64-ps3-linux-gnu",
+   "sparc-sun-solaris",
+   "windows_intelx86",
+   "windows_x86_64",
+   "x86_64-apple-darwin",
+   "x86_64-pc-linux-gnu"
+  ],
+  "source": "official"
+ }
+]

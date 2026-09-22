@@ -12,15 +12,17 @@ import (
 )
 
 type State struct {
-	XMLName   xml.Name   `xml:"client_state"`
-	Version   string     `xml:"client_version"`
-	HostInfo  HostInfo   `xml:"host_info"`
-	Projects  []Project  `xml:"projects>project"`
-	Results   []Result   `xml:"results>result"`
-	Transfers []Xfer     `xml:"file_transfers>file_transfer"`
-	Messages  []Msg      `xml:"msgs>msg"`
-	Status    Status     `xml:"cc_status"`
-	Stats     []DayStats `xml:"statistics>day"`
+	XMLName xml.Name `xml:"client_state"`
+	Version string   `xml:"client_version"`
+	// PlatformName is the BOINC platform this client asks projects for work as.
+	PlatformName string     `xml:"platform_name"`
+	HostInfo     HostInfo   `xml:"host_info"`
+	Projects     []Project  `xml:"projects>project"`
+	Results      []Result   `xml:"results>result"`
+	Transfers    []Xfer     `xml:"file_transfers>file_transfer"`
+	Messages     []Msg      `xml:"msgs>msg"`
+	Status       Status     `xml:"cc_status"`
+	Stats        []DayStats `xml:"statistics>day"`
 
 	OpenCLGpuProps []OpenCLProp `xml:"opencl_gpu_prop"`
 	Credits        []CreditDay  `xml:"credit_history>day"`
@@ -449,11 +451,12 @@ func (s *State) Snapshot() *State {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	cp := &State{
-		Version:  s.Version,
-		HostInfo: s.HostInfo,
-		Status:   s.Status,
-		stateFP:  s.stateFP,
-		seqno:    s.seqno,
+		Version:      s.Version,
+		PlatformName: s.PlatformName,
+		HostInfo:     s.HostInfo,
+		Status:       s.Status,
+		stateFP:      s.stateFP,
+		seqno:        s.seqno,
 	}
 	cp.Projects = make([]Project, len(s.Projects))
 	copy(cp.Projects, s.Projects)

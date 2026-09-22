@@ -36,17 +36,11 @@ import (
 const detachedEnv = "IRIS_DETACHED"
 
 func guiRPCPort() int {
-	if v := os.Getenv("IRIS_GUI_RPC_PORT"); v != "" {
-		if p, err := strconv.Atoi(v); err == nil && p > 0 && p < 65536 {
-			if p == product.BOINCGUIRPCPort {
-				fmt.Fprintf(os.Stderr, "Warning: port %d belongs to the BOINC client, using %d\n", p, product.DefaultGUIRPCPort)
-				return product.DefaultGUIRPCPort
-			}
-			return p
-		}
-		fmt.Fprintf(os.Stderr, "Warning: invalid IRIS_GUI_RPC_PORT, using %d\n", product.DefaultGUIRPCPort)
+	port, note := product.GUIRPCPort()
+	if note != "" {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", note)
 	}
-	return product.DefaultGUIRPCPort
+	return port
 }
 
 func main() {
@@ -161,6 +155,7 @@ func runDaemon() {
 
 	st.HostInfo, st.OpenCLGpuProps = detectHostInfo()
 	st.HostInfo.HostCPID = loadOrCreateHostCPID(dataDir)
+	st.PlatformName = scheduler.Platform()
 
 	fmt.Println(banner())
 	fmt.Println()
@@ -808,6 +803,7 @@ func (a *stateWorkerAdapter) Save() { a.s.Save() }
 
 type cacheAdapter struct{ c *cache.Manager }
 
+func (a *cacheAdapter) Full(gpu bool) bool                 { return a.c.Full(gpu) }
 func (a *cacheAdapter) AllocSlot(gpu bool) (string, error) { return a.c.AllocSlot(gpu) }
 func (a *cacheAdapter) FreeSlot(slot string) error         { return a.c.FreeSlot(slot) }
 func (a *cacheAdapter) SlotDir(gpu bool) string            { return a.c.SlotDir(gpu) }

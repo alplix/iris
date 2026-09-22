@@ -368,3 +368,14 @@ code {
   .nav-item { justify-content: center; }
   .nav-item .nav-count { position: absolute; top: 4px; right: 6px; margin: 0; padding: 1px 6px; }
 }
+
+/* Add project: catalog picker */
+.cat-list { max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.cat-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.cat-item:last-child { border-bottom: 0; }
+.cat-item:hover { background: rgba(124, 58, 237, 0.07); }
+.cat-item.sel { background: rgba(124, 58, 237, 0.14); box-shadow: inset 3px 0 0 var(--accent); }
+.cat-name { font-weight: 700; font-size: 13.5px; }
+.cat-desc { font-size: 12px; color: var(--text-soft); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.cat-item .badge { flex-shrink: 0; }
+.cat-detail { display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--border-strong); border-radius: 12px; padding: 12px 14px; background: var(--surface); }

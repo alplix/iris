@@ -41,6 +41,7 @@ type HostSpec struct {
 	DiskTotal int64   `json:"diskTotal"`
 	CPID      string  `json:"cpid"`
 	GPUs      []GPU   `json:"gpus"`
+	Platform  string  `json:"platform"` // BOINC platform name, "" if the client does not say
 }
 
 type ProjectInfo struct {
@@ -265,7 +266,7 @@ func Normalize(hostID string, demo bool, st *boinc.ClientState, transfers []boin
 	snap.HostInfo = HostSpec{
 		OS:        hi.OSName,
 		OSVersion: hi.OSVersion,
-		CPU:       strings.TrimSpace(hi.PVendor + " " + hi.PModel),
+		CPU:       cpuLabel(hi.PVendor, hi.PModel),
 		Cores:     hi.PNcpus.I(),
 		Flops:     hi.PFlops.F(),
 		Memory:    hi.MNbytes.I64(),
@@ -273,6 +274,7 @@ func Normalize(hostID string, demo bool, st *boinc.ClientState, transfers []boin
 		DiskTotal: hi.DTotal.I64(),
 		CPID:      hi.HostCPID,
 		GPUs:      gpusOf(*hi, st.OpenCLGpuProps),
+		Platform:  st.PlatformName,
 	}
 	for _, p := range st.Projects {
 		snap.Projects = append(snap.Projects, ProjectInfo{
@@ -399,4 +401,21 @@ func strconvFormat(f float64) string {
 	s := fmt.Sprintf("%.1f", f)
 	s = strings.TrimSuffix(s, ".0")
 	return s
+}
+
+// cpuLabel joins vendor and model, leaving the vendor out when the model
+// already names it or when it is only an x86 vendor ID ("GenuineIntel").
+func cpuLabel(vendor, model string) string {
+	vendor, model = strings.TrimSpace(vendor), strings.TrimSpace(model)
+	switch strings.ToLower(vendor) {
+	case "genuineintel", "authenticamd", "hygongenuine", "centaurhauls":
+		return model
+	}
+	if vendor == "" || strings.Contains(strings.ToLower(model), strings.ToLower(vendor)) {
+		return model
+	}
+	if model == "" {
+		return vendor
+	}
+	return vendor + " " + model
 }
