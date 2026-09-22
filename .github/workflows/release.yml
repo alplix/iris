@@ -133,6 +133,15 @@ jobs:
           IRIS_PKG_ARCH: ${{ matrix.arch }}
         run: |
           export IRIS_PKG_VERSION="${IRIS_PKG_VERSION#v}" # nfpm's version must not start with "v"
+          # A manual dispatch off a branch (rather than a vX.Y.Z tag) leaves a
+          # branch name here, which neither dpkg nor rpm accept as a version
+          # (must start with a digit, and rpm treats "-" as its own Version/
+          # Release separator) — fall back to a harmless placeholder instead
+          # of failing the build.
+          if ! [[ "$IRIS_PKG_VERSION" =~ ^[0-9] ]]; then
+            IRIS_PKG_VERSION="0.0.0"
+          fi
+          export IRIS_PKG_VERSION
           nfpm pkg --config build/linux/nfpm.yaml --packager deb --target iris-${{ matrix.arch }}.deb
           nfpm pkg --config build/linux/nfpm.yaml --packager rpm --target iris-${{ matrix.arch }}.rpm
 
