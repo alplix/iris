@@ -104,6 +104,33 @@ func TestDigestReachesTheServerAndNamesTheDemoProject(t *testing.T) {
 	}
 }
 
+// TestAskInstructsTheModelToReplyInTheUIsLanguage guards against the model
+// defaulting to English regardless of what language Iris' own interface (and
+// the person's question) is in — the instructions and digest are otherwise
+// entirely in English, so without an explicit language instruction a small
+// model tends to just answer in English too.
+func TestAskInstructsTheModelToReplyInTheUIsLanguage(t *testing.T) {
+	mgr := newTestManager(t)
+	if err := app.SaveSettings(app.Settings{Lang: "tr"}); err != nil {
+		t.Fatal(err)
+	}
+	var gotBody string
+	s := withAssistant(t, mgr, func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Messages []tilvar.Message `json:"messages"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		gotBody = req.Messages[len(req.Messages)-1].Content
+		json.NewEncoder(w).Encode(map[string]string{"reply": "ok"})
+	})
+	if _, err := s.Ask(context.Background(), "merhaba"); err != nil {
+		t.Fatal(err)
+	}
+	if !contains(gotBody, "Turkish") {
+		t.Errorf("expected an instruction naming Turkish (Iris' current language), got: %s", gotBody)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {

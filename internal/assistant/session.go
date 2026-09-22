@@ -106,8 +106,9 @@ func (s *Session) Ask(ctx context.Context, text string) (Reply, error) {
 	// never the live message. The fleet digest varies with the size of the
 	// fleet, so it is the user's own text that gets shortened if needed,
 	// never the instructions or the digest itself (both are load-bearing).
+	langName := currentLanguageName()
 	digest := buildDigest(s.mgr)
-	overhead := len(actionInstructions) + len(digest) + len(wrapUserMessage("", ""))
+	overhead := len(actionInstructions(langName)) + len(digest) + len(wrapUserMessage("", "", langName))
 	userBudget := requestBudget - overhead
 	if userBudget < 100 {
 		userBudget = 100
@@ -115,7 +116,7 @@ func (s *Session) Ask(ctx context.Context, text string) (Reply, error) {
 	if r := []rune(text); len(r) > userBudget {
 		text = string(r[:userBudget])
 	}
-	wrapped := wrapUserMessage(digest, text)
+	wrapped := wrapUserMessage(digest, text, langName)
 	toSend := tilvar.Trim(append(history, tilvar.Message{Role: tilvar.RoleUser, Content: wrapped}), requestBudget)
 
 	reply, err := s.client.Chat(ctx, toSend)
@@ -202,16 +203,40 @@ func newActionID() string {
 	return hex.EncodeToString(b[:])
 }
 
+// languageNames maps a UI language code to the plain English name used to
+// tell the model what language to reply in — plainer for a small model to
+// follow than an ISO code or the language's own native name.
+var languageNames = map[string]string{
+	"en": "English", "tr": "Turkish", "de": "German", "fr": "French",
+	"es": "Spanish", "it": "Italian", "pt": "Portuguese", "ru": "Russian", "ja": "Japanese",
+}
+
+// currentLanguageName reads the language the person picked for Iris' own
+// interface (or "" if they never picked one, which the UI then treats as
+// English) and returns the model-facing English name for it. Without this,
+// the model has no signal for which language to answer in beyond the user's
+// own message, and — being a small model — tends to default to English
+// regardless, since every other word in the prompt (instructions, digest) is
+// English too.
+func currentLanguageName() string {
+	if name, ok := languageNames[app.LoadSettings().Lang]; ok {
+		return name
+	}
+	return "English"
+}
+
 // actionInstructions is sent with every turn (the API keeps no memory of its
 // own), so it stays deliberately short: it is overhead on every single
 // request against a shared, rate-limited quota.
-const actionInstructions = `You can control this Iris (BOINC-compatible) fleet. If, and only if, the user clearly asks to change something, reply with EXACTLY one line and nothing else — no explanation before or after it:
+func actionInstructions(langName string) string {
+	return `You can control this Iris (BOINC-compatible) fleet. If, and only if, the user clearly asks to change something, reply with EXACTLY one line and nothing else — no explanation before or after it, in this exact format (never translate it):
 ACTION: {"tool":"project_op","host":"<server>","project":"<project>","op":"suspend|resume|update|detach|nomorework|allowmorework"}
 ACTION: {"tool":"client_op","host":"<server>","op":"setRunMode|setNetworkMode|benchmarks","mode":"always|auto|never"}
 ACTION: {"tool":"client_op_all","op":"...","mode":"..."} (every server)
 ACTION: {"tool":"set_prefs","host":"<server>","fields":{"max_ncpus_pct":"50"}}
-Use the exact server/project names from the summary below; never invent one. Otherwise just answer normally in plain text.`
+Use the exact server/project names from the summary below; never invent one. Otherwise, reply normally in plain text, always in ` + langName + ` (the language of Iris' own interface) — unless the user's message below is clearly written in a different language, in which case reply in that language instead.`
+}
 
-func wrapUserMessage(digest, text string) string {
-	return actionInstructions + "\n\n" + digest + "\nUser: " + text
+func wrapUserMessage(digest, text, langName string) string {
+	return actionInstructions(langName) + "\n\n" + digest + "\nUser: " + text
 }
