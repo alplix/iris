@@ -169,6 +169,8 @@ func (m *Mock) buildStats(rnd *rand.Rand) {
 				Day:          boinc.Num((day0 - int64(d)*86400) / 86400),
 				TotalCredit:  boinc.Num(p.info.HostCredit - total),
 				ExpavgCredit: boinc.Num(gain),
+				TasksSuccess: boinc.Num(2 + rnd.Intn(9)),
+				TasksError:   boinc.Num(rnd.Intn(2)),
 			})
 		}
 		m.stats[p.info.URL] = append(m.stats[p.info.URL], ps)

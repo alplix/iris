@@ -112,6 +112,9 @@ func TestRPCMessagesTransfersAndHistory(t *testing.T) {
 	r.st.AddMessage("hello", "", 1)
 	r.st.AddProject(state.Project{Name: "P", MasterURL: "https://p.example"})
 	r.st.UpdateProjectCredit("https://p.example", 1000, 50, 400, 20)
+	r.st.RecordTaskDay("https://p.example", true, 120)
+	r.st.RecordTaskDay("https://p.example", true, 80)
+	r.st.RecordTaskDay("https://p.example", false, 30)
 	r.st.AddXfer(false, 5000)
 	r.st.AddXfer(true, 700)
 	r.st.BeginTransfer(state.Xfer{Name: "wu_1", ProjectURL: "https://p.example", Nbytes: 100, BytesXferred: 40})
@@ -132,12 +135,35 @@ func TestRPCMessagesTransfersAndHistory(t *testing.T) {
 	if d := stats[0].Daily[0]; !d.Cumulative() || d.HostTotalCredit.I() != 400 || d.UserTotalCredit.I() != 1000 {
 		t.Errorf("daily stat = %+v", d)
 	}
+	// Credit (scheduler) and task counts (worker) land in the same day bucket
+	// even though they are recorded independently.
+	if d := stats[0].Daily[0]; d.TasksSuccess.I() != 2 || d.TasksError.I() != 1 {
+		t.Errorf("daily stat task counts = %+v, want success=2 error=1", d)
+	}
 	dx, err := c.GetDailyXferHistory()
 	if err != nil || len(dx) != 1 || dx[0].Down.I() != 5000 || dx[0].Up.I() != 700 {
 		t.Fatalf("xfer history = %+v, %v", dx, err)
 	}
 	if dx[0].When.I64() < 1e9 {
 		t.Errorf("xfer time %d should be unix seconds", dx[0].When.I64())
+	}
+}
+
+// GetStats merges credit history and task-completion counts by (project, day)
+// even when only one of the two was ever recorded for a given project.
+func TestRPCStatsTaskCountsWithoutCredit(t *testing.T) {
+	r := newRig(t)
+	r.st.AddProject(state.Project{Name: "Q", MasterURL: "https://q.example"})
+	r.st.RecordTaskDay("https://q.example", true, 60)
+	c := r.client(t)
+
+	stats, err := c.GetStats()
+	if err != nil || len(stats) != 1 || stats[0].MasterURL != "https://q.example" {
+		t.Fatalf("stats = %+v, %v", stats, err)
+	}
+	d := stats[0].Daily[0]
+	if d.TasksSuccess.I() != 1 || d.HostTotalCredit.I() != 0 {
+		t.Errorf("daily stat = %+v, want tasks_success=1 and no credit fields", d)
 	}
 }
 

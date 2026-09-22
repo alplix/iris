@@ -19,15 +19,16 @@ func (f *fakeState) UpdateResult(name string, state int, frac, cpu float64, exit
 	f.touched[name] = true
 	f.mu.Unlock()
 }
-func (f *fakeState) SetSlotPath(name, slotPath string)             {}
-func (f *fakeState) RemoveResult(name string)                      {}
-func (f *fakeState) GetTaskMode() int                              { return 1 }
-func (f *fakeState) GetDiskUsage() int64                           { return 0 }
-func (f *fakeState) GetDiskQuota() int64                           { return 0 }
-func (f *fakeState) SetDiskUsage(v int64)                          {}
-func (f *fakeState) UpdateStats(ok bool, cpu, gpu, credit float64) {}
-func (f *fakeState) AddMessage(body, project string, pri int)      {}
-func (f *fakeState) Save()                                         {}
+func (f *fakeState) SetSlotPath(name, slotPath string)                  {}
+func (f *fakeState) RemoveResult(name string)                           {}
+func (f *fakeState) GetTaskMode() int                                   { return 1 }
+func (f *fakeState) GetDiskUsage() int64                                { return 0 }
+func (f *fakeState) GetDiskQuota() int64                                { return 0 }
+func (f *fakeState) SetDiskUsage(v int64)                               {}
+func (f *fakeState) UpdateStats(ok bool, cpu, gpu, credit float64)      {}
+func (f *fakeState) RecordTaskDay(url string, ok bool, cpuTime float64) {}
+func (f *fakeState) AddMessage(body, project string, pri int)           {}
+func (f *fakeState) Save()                                              {}
 func (f *fakeState) started(name string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

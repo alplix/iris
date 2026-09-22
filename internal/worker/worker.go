@@ -53,6 +53,9 @@ type StateAccessor interface {
 	GetDiskQuota() int64
 	SetDiskUsage(v int64)
 	UpdateStats(success bool, cpuTime, gpuTime, credit float64)
+	// RecordTaskDay counts a finished task against its project's daily total,
+	// the data behind the assistant's "how many X tasks per day" answers.
+	RecordTaskDay(projectURL string, success bool, cpuTime float64)
 	AddMessage(body, project string, pri int)
 	Save()
 }
@@ -476,12 +479,14 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 				e.uploadOutputs(r)
 				e.state.UpdateResult(r.Name, StateReady, progress, elapsed, exitCode)
 				e.state.UpdateStats(true, elapsed, 0, 0)
+				e.state.RecordTaskDay(r.ProjectURL, true, elapsed)
 				log.Printf("[Worker] Task %s completed OK (%.1fs, progress=%.2f)", r.Name, elapsed, progress)
 
 			case ExitNeedAbort:
 				log.Printf("[Worker] Task %s requests abort (exit %d)", r.Name, exitCode)
 				e.state.UpdateResult(r.Name, StateError, 0, elapsed, exitCode)
 				e.state.UpdateStats(false, elapsed, 0, 0)
+				e.state.RecordTaskDay(r.ProjectURL, false, elapsed)
 
 			case ExitClientExiting:
 				if wasStopping {
@@ -492,12 +497,14 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 					log.Printf("[Worker] Task %s requests client exit unexpectedly (exit %d)", r.Name, exitCode)
 					e.state.UpdateResult(r.Name, StateError, 0, elapsed, exitCode)
 					e.state.UpdateStats(false, elapsed, 0, 0)
+					e.state.RecordTaskDay(r.ProjectURL, false, elapsed)
 				}
 
 			default:
 				log.Printf("[Worker] Task %s failed with exit code %d (%.1fs)", r.Name, exitCode, elapsed)
 				e.state.UpdateResult(r.Name, StateError, 0, elapsed, exitCode)
 				e.state.UpdateStats(false, elapsed, 0, 0)
+				e.state.RecordTaskDay(r.ProjectURL, false, elapsed)
 			}
 			return
 

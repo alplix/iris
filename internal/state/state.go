@@ -27,6 +27,7 @@ type State struct {
 	OpenCLGpuProps []OpenCLProp `xml:"opencl_gpu_prop"`
 	Credits        []CreditDay  `xml:"credit_history>day"`
 	Xfers          []DayXfer    `xml:"daily_xfers>dx"`
+	TaskDays       []TaskDay    `xml:"task_history>day"`
 
 	mu      sync.RWMutex
 	stateFP string
@@ -88,6 +89,17 @@ type DayXfer struct {
 	When int64   `xml:"when"`
 	Up   float64 `xml:"up"`
 	Down float64 `xml:"down"`
+}
+
+// TaskDay is one project's finished-task counts for a given day (unix days).
+// It is recorded independently of CreditDay: task completion (worker) and
+// credit (scheduler RPC) happen on different, unrelated schedules.
+type TaskDay struct {
+	URL     string  `xml:"url"`
+	Day     int64   `xml:"d"`
+	Success int     `xml:"s"`
+	Error   int     `xml:"e"`
+	CPUTime float64 `xml:"c"`
 }
 
 type Project struct {
@@ -370,6 +382,7 @@ func (s *State) MarshalState() ([]byte, error) {
 	cp := s.Snapshot()
 	cp.Credits = nil
 	cp.Xfers = nil
+	cp.TaskDays = nil
 	return xml.MarshalIndent(cp, "", "  ")
 }
 
@@ -471,6 +484,7 @@ func (s *State) Snapshot() *State {
 	cp.OpenCLGpuProps = append([]OpenCLProp(nil), s.OpenCLGpuProps...)
 	cp.Credits = append([]CreditDay(nil), s.Credits...)
 	cp.Xfers = append([]DayXfer(nil), s.Xfers...)
+	cp.TaskDays = append([]TaskDay(nil), s.TaskDays...)
 	return cp
 }
 
@@ -512,6 +526,43 @@ func (s *State) UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal
 		}
 	}
 	s.Credits = kept
+}
+
+// RecordTaskDay counts one finished task against its project's daily total —
+// the data behind "how many Project X tasks did I complete today/this week".
+func (s *State) RecordTaskDay(projectURL string, success bool, cpuTime float64) {
+	if projectURL == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	day := unixDay(time.Now())
+	for i := range s.TaskDays {
+		if s.TaskDays[i].URL == projectURL && s.TaskDays[i].Day == day {
+			if success {
+				s.TaskDays[i].Success++
+			} else {
+				s.TaskDays[i].Error++
+			}
+			s.TaskDays[i].CPUTime += cpuTime
+			return
+		}
+	}
+	td := TaskDay{URL: projectURL, Day: day, CPUTime: cpuTime}
+	if success {
+		td.Success = 1
+	} else {
+		td.Error = 1
+	}
+	s.TaskDays = append(s.TaskDays, td)
+	cutoff := day - maxCreditDays
+	kept := s.TaskDays[:0]
+	for _, t := range s.TaskDays {
+		if t.Day > cutoff {
+			kept = append(kept, t)
+		}
+	}
+	s.TaskDays = kept
 }
 
 // AddXfer accounts n transferred bytes to today's totals.

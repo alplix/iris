@@ -61,6 +61,7 @@ func TestLoadDropsStaleTransfersButKeepsHistory(t *testing.T) {
 	s.AddProject(Project{MasterURL: "u"})
 	s.UpdateProjectCredit("u", 1, 1, 1, 1)
 	s.AddXfer(false, 10)
+	s.RecordTaskDay("u", true, 5)
 	s.BeginTransfer(Xfer{Name: "stale"})
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
@@ -74,8 +75,41 @@ func TestLoadDropsStaleTransfersButKeepsHistory(t *testing.T) {
 	if len(got.Transfers) != 0 {
 		t.Errorf("stale transfers survived a restart: %+v", got.Transfers)
 	}
-	if len(got.Credits) != 1 || len(got.Xfers) != 1 {
-		t.Errorf("history lost: credits=%d xfers=%d", len(got.Credits), len(got.Xfers))
+	if len(got.Credits) != 1 || len(got.Xfers) != 1 || len(got.TaskDays) != 1 {
+		t.Errorf("history lost: credits=%d xfers=%d taskDays=%d", len(got.Credits), len(got.Xfers), len(got.TaskDays))
+	}
+}
+
+func TestRecordTaskDayAccumulatesPerProjectPerDay(t *testing.T) {
+	s := New(t.TempDir())
+	s.RecordTaskDay("https://einsteinathome.org", true, 100)
+	s.RecordTaskDay("https://einsteinathome.org", true, 120)
+	s.RecordTaskDay("https://einsteinathome.org", false, 30)
+	s.RecordTaskDay("https://boinc.bakerlab.org/rosetta", true, 50)
+	s.RecordTaskDay("", true, 999) // no project URL: must be ignored, not panic
+
+	days := s.Snapshot().TaskDays
+	if len(days) != 2 {
+		t.Fatalf("got %d project/day buckets, want 2: %+v", len(days), days)
+	}
+	var einstein TaskDay
+	for _, d := range days {
+		if d.URL == "https://einsteinathome.org" {
+			einstein = d
+		}
+	}
+	if einstein.Success != 2 || einstein.Error != 1 || einstein.CPUTime != 250 {
+		t.Errorf("einstein day = %+v, want success=2 error=1 cpu=250", einstein)
+	}
+}
+
+func TestRecordTaskDayKeepsProjectsIndependent(t *testing.T) {
+	s := New(t.TempDir())
+	s.RecordTaskDay("https://a.example", true, 1)
+	s.RecordTaskDay("https://b.example", false, 1)
+	days := s.Snapshot().TaskDays
+	if len(days) != 2 {
+		t.Fatalf("got %d buckets, want 2 (one per project): %+v", len(days), days)
 	}
 }
 

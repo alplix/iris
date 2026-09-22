@@ -210,3 +210,30 @@ func TestClientOpAll(t *testing.T) {
 		t.Fatalf("RefreshAll returned %d, want 2", n)
 	}
 }
+
+// Manager.Stats carries task-completion counts through to StatPoint, the data
+// behind questions like "how many tasks did I finish today".
+func TestManagerStatsCarriesTaskCounts(t *testing.T) {
+	dir := t.TempDir()
+	m := newManagerWith(&Store{path: filepath.Join(dir, "hosts.json")})
+	h := m.Store.Upsert(HostCfg{Name: "Demo", Host: "localhost", Port: 31416, Demo: true})
+
+	series, err := m.Stats(h.ID)
+	if err != nil || len(series) == 0 {
+		t.Fatalf("Stats: %v, n=%d", err, len(series))
+	}
+	var sawSuccess bool
+	for _, ss := range series {
+		for _, pt := range ss.Daily {
+			if pt.TasksSuccess > 0 {
+				sawSuccess = true
+			}
+			if pt.TasksSuccess < 0 || pt.TasksError < 0 {
+				t.Fatalf("negative task count in %+v", pt)
+			}
+		}
+	}
+	if !sawSuccess {
+		t.Fatal("no day had any successful task; demo data should always have some")
+	}
+}
