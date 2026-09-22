@@ -205,6 +205,7 @@ func runDaemon() {
 		DataDir:           dataDir,
 		HostCPID:          st.HostInfo.HostCPID,
 	})
+	handler.sched = schedEngine
 	schedEngine.Start()
 
 	dl := &downloaderAdapter{dataDir: dataDir, xfers: xfers}
@@ -358,6 +359,7 @@ type clientHandler struct {
 	cfg      *config.Config
 	prefs    *prefs.Store
 	xfers    *transferTracker
+	sched    *scheduler.Engine
 	benching atomic.Bool
 }
 
@@ -577,6 +579,9 @@ func (h *clientHandler) ProjectOp(url, op string) error {
 		h.state.SetProjectSuspended(url, false)
 	case "update":
 		h.state.SetProjectUpdate(url)
+		if h.sched != nil {
+			h.sched.RequestUpdate(url)
+		}
 	}
 	return nil
 }
@@ -739,7 +744,10 @@ func (a *stateAdapter) UpdateStats(ok bool, cpu, gpu, credit float64) {
 	a.s.UpdateStats(ok, cpu, gpu, credit)
 }
 func (a *stateAdapter) AddMessage(body, project string, pri int) { a.s.AddMessage(body, project, pri) }
-func (a *stateAdapter) Save()                                    { a.s.Save() }
+func (a *stateAdapter) SetProjectSchedPending(url string, pending bool) {
+	a.s.SetProjectSchedPending(url, pending)
+}
+func (a *stateAdapter) Save() { a.s.Save() }
 
 type stateWorkerAdapter struct{ s *state.State }
 

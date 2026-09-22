@@ -368,11 +368,25 @@ func (s *State) SetProjectSuspended(url string, suspended bool) {
 }
 
 func (s *State) SetProjectUpdate(url string) {
+	s.SetProjectSchedPending(url, true)
+}
+
+// SetProjectSchedPending marks whether a project is waiting for its next
+// scheduler contact. SetProjectUpdate sets it true when the person asks for
+// an update; the scheduler engine clears it back to false once it actually
+// attempts that contact (see scheduler.Engine.doRPC) — without this, a
+// project that was ever updated stayed marked "updating" in the UI forever,
+// even after the request had long since succeeded or failed.
+func (s *State) SetProjectSchedPending(url string, pending bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	val := 0
+	if pending {
+		val = 1
+	}
 	for i := range s.Projects {
 		if s.Projects[i].MasterURL == url {
-			s.Projects[i].SchedRPCPending = 1
+			s.Projects[i].SchedRPCPending = val
 			return
 		}
 	}
