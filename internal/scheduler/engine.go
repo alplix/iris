@@ -119,6 +119,9 @@ type ResultInfo struct {
 	ExitStatus    int
 	CmdLine       string
 	AppVersionNum int
+	// AppName is the matched app_version's own name, if the scheduler sent
+	// one (see matchAppVersion) — empty for the demo/legacy stub path.
+	AppName       string
 	Files         []FileInfo
 	ReadyToReport int
 }
@@ -128,6 +131,9 @@ type FileInfo struct {
 	URL    string
 	NBytes float64
 	MD5    string
+	// MainProgram marks the one file (from a matched app_version) that is the
+	// actual executable to launch, as opposed to an input/library file.
+	MainProgram bool
 }
 
 func NewEngine(state StateManager, cache CacheManager, cfg EngineConfig) *Engine {
@@ -403,7 +409,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 
 	for _, rr := range reply.Results {
-		e.handleWork(ps, rr, fileMap)
+		e.handleWork(ps, rr, fileMap, reply.AppVersions)
 	}
 
 	echoed := make(map[string]bool)
@@ -436,7 +442,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 }
 
-func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML) {
+func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML, appVersions []AppVersionXML) {
 	log.Printf("[Scheduler] Work: %s (wu=%s, prio=%.2f, plan=%s)", rr.Name, rr.WuName, rr.Priority, rr.PlanClass)
 	isGPU := detectGPUFromResult(rr)
 
@@ -450,6 +456,28 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 		}
 	}
 
+	appName := ""
+	if av, ok := matchAppVersion(appVersions, rr); ok {
+		appName = av.AppName
+		for _, ref := range av.FileRef {
+			fi, ok := fileMap[ref.FileName]
+			fInfo := FileInfo{Name: ref.FileName, MainProgram: ref.MainProgram != nil}
+			if ok {
+				fInfo.URL, fInfo.NBytes, fInfo.MD5 = fi.URL, fi.NBytes, fi.MD5
+			}
+			files = append(files, fInfo)
+		}
+		log.Printf("[Scheduler] %s uses app_version %s v%d (plan=%s, %d file(s))",
+			rr.Name, av.AppName, av.VersionNum, av.PlanClass, len(av.FileRef))
+	} else if len(appVersions) > 0 {
+		// The scheduler offered real app_versions but none of them lines up
+		// with what this result asked for — the task will fall back to the
+		// legacy demo-stub executable names in worker.findExecutable, which
+		// won't exist, so it will visibly fail rather than silently stall.
+		log.Printf("[Scheduler] %s: no app_version matches app_version_num=%d plan_class=%q",
+			rr.Name, rr.AppVersionNum, rr.PlanClass)
+	}
+
 	result := ResultInfo{
 		Name:          rr.Name,
 		WuName:        rr.WuName,
@@ -459,11 +487,41 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 		Deadline:      rr.EarliestDeadline,
 		CmdLine:       rr.CmdLine,
 		AppVersionNum: rr.AppVersionNum,
+		AppName:       appName,
 		Files:         files,
 	}
 	e.state.AddResult(result)
 	e.state.Save()
 	log.Printf("[Scheduler] Assigned %s (gpu=%v, files=%d, cmdline=%q)", rr.Name, isGPU, len(files), rr.CmdLine)
+}
+
+// matchAppVersion finds the app_version a result belongs to. BOINC's own
+// scheduler reply has no single field tying a <result> straight to one
+// <app_version> — real clients resolve it through the workunit's app_id,
+// which this codebase does not parse (see the "Not implemented yet" caveat
+// this leaves in place). Instead this matches on what a <result> does carry:
+// app_version_num and plan_class, which is exact whenever a project (as
+// almost all do) only ever offers one app per plan class per platform to a
+// given host in a single RPC. A project multiplexing several distinct apps
+// under identical (version_num, plan_class) pairs in the same reply would
+// defeat this — considered rare enough to accept for now.
+func matchAppVersion(appVersions []AppVersionXML, rr ReplyResult) (AppVersionXML, bool) {
+	for _, av := range appVersions {
+		if av.VersionNum == rr.AppVersionNum && av.PlanClass == rr.PlanClass {
+			return av, true
+		}
+	}
+	// plan_class is often empty for a plain CPU app on both sides; still
+	// require the version number to match rather than guessing blindly.
+	for _, av := range appVersions {
+		if av.VersionNum == rr.AppVersionNum {
+			return av, true
+		}
+	}
+	if len(appVersions) == 1 {
+		return appVersions[0], true
+	}
+	return AppVersionXML{}, false
 }
 
 func detectGPUFromResult(rr ReplyResult) bool {

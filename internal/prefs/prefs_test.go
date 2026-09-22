@@ -51,6 +51,21 @@ func TestXMLEscapesValues(t *testing.T) {
 	}
 }
 
+func TestBoolReadsTruthyValuesAndDefaultsFalse(t *testing.T) {
+	s := Open(t.TempDir())
+	if s.Bool(RealAppsKey) {
+		t.Error("an unset key should default to false")
+	}
+	s.Set([][2]string{{RealAppsKey, "1"}})
+	if !s.Bool(RealAppsKey) {
+		t.Error("1 should be truthy")
+	}
+	s.Set([][2]string{{RealAppsKey, "0"}})
+	if s.Bool(RealAppsKey) {
+		t.Error("0 should not be truthy")
+	}
+}
+
 func TestMaxCPUs(t *testing.T) {
 	s := Open(t.TempDir())
 	if got := s.MaxCPUs(16); got != 16 {

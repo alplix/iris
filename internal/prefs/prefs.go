@@ -149,6 +149,25 @@ func (s *Store) Float(key string) (float64, bool) {
 	return f, true
 }
 
+// RealAppsKey is the override name the Settings page's experimental "run
+// real applications" toggle sets, read back via Bool. It lives here next to
+// the other overrides rather than in its own file so enabling/disabling it
+// goes through the exact same GUI RPC (Get/SetPrefsOverride) path as every
+// other preference already does.
+const RealAppsKey = "real_apps_enabled"
+
+// Bool returns whether key is set to a truthy value ("1", "true", "yes").
+func (s *Store) Bool(key string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch strings.ToLower(strings.TrimSpace(s.vals[key])) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // MaxCPUs is how many tasks may run at once on a host with ncpu cores, after
 // applying max_ncpus and max_ncpus_pct. It is never below 1.
 func (s *Store) MaxCPUs(ncpu int) int {

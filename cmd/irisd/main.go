@@ -210,10 +210,11 @@ func runDaemon() {
 
 	dl := &downloaderAdapter{dataDir: dataDir, xfers: xfers}
 	workerEngine := worker.NewEngine(&stateWorkerAdapter{st}, &cacheAdapter{cacheMgr}, &projectAdapter{st}, dl, dl, worker.Config{
-		MaxConcurrent:   runtime.NumCPU(),
-		MaxConcurrentFn: func() int { return overrides.MaxCPUs(runtime.NumCPU()) },
-		DataDir:         dataDir,
-		UserAgent:       product.UserAgent(),
+		MaxConcurrent:     runtime.NumCPU(),
+		MaxConcurrentFn:   func() int { return overrides.MaxCPUs(runtime.NumCPU()) },
+		DataDir:           dataDir,
+		UserAgent:         product.UserAgent(),
+		RealAppsEnabledFn: func() bool { return overrides.Bool(prefs.RealAppsKey) },
 	})
 	workerEngine.Start()
 
@@ -686,7 +687,7 @@ func (a *stateAdapter) GetProjects() []scheduler.ProjectInfo {
 func (a *stateAdapter) AddResult(r scheduler.ResultInfo) {
 	var files []state.FileInfo
 	for _, f := range r.Files {
-		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5})
+		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram})
 	}
 	resources := ""
 	if r.GPU {
@@ -699,6 +700,7 @@ func (a *stateAdapter) AddResult(r scheduler.ResultInfo) {
 		State:         r.State,
 		CmdLine:       r.CmdLine,
 		AppVersionNum: r.AppVersionNum,
+		AppName:       r.AppName,
 		Resources:     resources,
 		Files:         files,
 	})
@@ -765,7 +767,7 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 			State: r.State, FracDone: r.FractionDone, CPUTime: r.CurrentCPUTime,
 			Slot: r.SlotPath, GPU: r.IsGPU(),
 			Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
-			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum,
+			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum, AppName: r.AppName,
 			Files: convertFiles(r.Files), Suspended: r.SuspendedViaGUI,
 			ResourceShare: shares[r.ProjectURL],
 		})
@@ -773,11 +775,25 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 	return out
 }
 
+// IsSuspended reports a task's current suspend flag by name, polled by the
+// worker while a real OS process is running so a suspend/resume click made
+// mid-task actually reaches it (see internal/worker's suspendTicker).
+func (a *stateWorkerAdapter) IsSuspended(name string) bool {
+	a.s.RLock()
+	defer a.s.RUnlock()
+	for _, r := range a.s.Results {
+		if r.Name == name {
+			return r.SuspendedViaGUI != 0
+		}
+	}
+	return false
+}
+
 func convertFiles(files []state.FileInfo) []worker.FileRef {
 	var out []worker.FileRef
 	for _, f := range files {
 		out = append(out, worker.FileRef{
-			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5,
+			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram,
 		})
 	}
 	return out

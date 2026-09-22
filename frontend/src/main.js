@@ -1647,11 +1647,19 @@ window._openPrefs = async (hostId) => {
   if (!h) return
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
-  const txt = Object.entries(prefs || {}).map(([k, v]) => `${k}=${v}`).join('\n')
+  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => `${k}=${v}`).join('\n')
+  const realAppsOn = prefs?.real_apps_enabled === '1'
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:540px">
         <div class="modal-head"><h3>${esc(T('ui.globalPrefs', { name: h.name }))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
+        <div class="card" style="background:var(--bg-warn,rgba(234,88,12,0.08));border:1px solid rgba(234,88,12,0.35);margin-bottom:12px">
+          <label class="row" style="gap:8px;align-items:flex-start;cursor:pointer">
+            <input type="checkbox" id="real-apps-toggle" ${realAppsOn ? 'checked' : ''} onchange="window._toggleRealApps('${hostId}', this.checked)" style="margin-top:3px">
+            <span style="font-weight:700">${esc(T('ui.realAppsToggle'))}</span>
+          </label>
+          <p class="faint" style="margin:6px 0 0;font-size:12px">${esc(T('ui.realAppsWarning'))}</p>
+        </div>
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
         <div class="modal-foot">
@@ -1666,6 +1674,23 @@ window._openPrefs = async (hostId) => {
   render()
 }
 
+// _toggleRealApps sets the experimental toggle immediately (it isn't queued
+// with the raw key=value textarea's Save button) since it carries its own
+// risk warning right next to it and should take effect the moment someone
+// answers it, the same way the AI assistant's own consent switch does.
+window._toggleRealApps = async (hostId, on) => {
+  try {
+    let prefs = {}
+    try { prefs = await api('GetPrefs', hostId) } catch (e) {}
+    const fields = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => [k, v])
+    if (on) fields.push(['real_apps_enabled', '1'])
+    await api('SetPrefs', hostId, fields)
+    toast(T('set.saved'), 'ok')
+  } catch (e) {
+    toast(e.message || T('ui.opFailed'), 'err')
+  }
+}
+
 window._savePrefs = async (hostId) => {
   const raw = $('#prefs-text')?.value || ''
   const fields = []
@@ -1674,9 +1699,10 @@ window._savePrefs = async (hostId) => {
     if (i < 0) continue
     const k = line.slice(0, i).trim()
     const v = line.slice(i + 1).trim()
-    if (!k) continue
+    if (!k || k === 'real_apps_enabled') continue // has its own checkbox, applied immediately by _toggleRealApps
     fields.push([k, v])
   }
+  if ($('#real-apps-toggle')?.checked) fields.push(['real_apps_enabled', '1'])
   try {
     await api('SetPrefs', hostId, fields)
     state.modal = null

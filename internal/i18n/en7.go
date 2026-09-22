@@ -35,6 +35,8 @@ func init() {
 		"ui.sendTest": "Send Test", "ui.add": "Add", "ui.displayName": "Display Name (optional)",
 		"ui.resetDefaults": "Reset to defaults", "ui.globalPrefs": "Global Preferences - {name}",
 		"ui.prefsHelp":  "One key=value per line. An empty value clears a setting. Changes apply to the whole client.",
+		"ui.realAppsToggle": "Run real project applications (experimental, unsandboxed)",
+		"ui.realAppsWarning": "Off by default. When on, Iris downloads and runs each project's real, unmodified application with no sandbox — the same trust model as the official BOINC client. Only enable this for projects you trust.",
 		"ui.backOnline": "{h} is back online", "ui.tasksErrored": "{h}: {n} task(s) errored",
 		"ui.notifUnsupported": "Notifications not supported", "ui.notifEnabled": "Notifications enabled",
 		"ui.notifWorking": "Notifications are working", "ui.notifFirst": "Enable notifications first",

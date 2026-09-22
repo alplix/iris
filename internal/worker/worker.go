@@ -3,6 +3,7 @@ package worker
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -29,7 +30,8 @@ type Engine struct {
 	running  map[string]*exec.Cmd
 	cfg      Config
 
-	cacheWarned map[bool]time.Time
+	cacheWarned    map[bool]time.Time
+	realAppsWarned time.Time
 }
 
 type Config struct {
@@ -42,6 +44,15 @@ type Config struct {
 	SlotTimeout     time.Duration
 	CheckpointSec   int
 	MaxDiskUsage    int64
+
+	// RealAppsEnabledFn, when set and returning true, lets the engine launch
+	// a task's real downloaded application (see ResultSnapshot.Files'
+	// MainProgram flag) instead of only the legacy demo-stub executable
+	// names. This is unsandboxed — a downloaded project binary runs with
+	// Iris's own privileges, same as the reference BOINC client — so it
+	// defaults to off (nil or a func returning false) until the person
+	// explicitly opts in from Settings.
+	RealAppsEnabledFn func() bool
 }
 
 type StateAccessor interface {
@@ -59,6 +70,10 @@ type StateAccessor interface {
 	RecordTaskDay(projectURL string, success bool, cpuTime float64)
 	AddMessage(body, project string, pri int)
 	Save()
+	// IsSuspended reports a task's current suspend flag, polled while it runs
+	// so a suspend/resume click reaches an already-started OS process instead
+	// of only affecting which tasks the next cycle picks to start.
+	IsSuspended(name string) bool
 }
 
 type CacheAccessor interface {
@@ -88,6 +103,7 @@ type ResultSnapshot struct {
 	ExitStatus    int
 	CmdLine       string
 	AppVersionNum int
+	AppName       string
 	Files         []FileRef
 	Suspended     int
 	MaxElapSec    float64
@@ -103,6 +119,9 @@ type FileRef struct {
 	URL    string
 	NBytes float64
 	MD5    string
+	// MainProgram marks the one file that is the real application executable
+	// downloaded from the project, as opposed to an input or library file.
+	MainProgram bool
 }
 
 type Downloader interface {
@@ -427,9 +446,78 @@ func (e *Engine) startTask(r ResultSnapshot) {
 		return
 	}
 
+	if isMainProgramFile(r, exePath) {
+		e.writeInitDataFile(r)
+	}
+
 	log.Printf("[Worker] Task %s ready, launching %s", r.Name, exePath)
 	e.state.UpdateResult(r.Name, StateCompute, r.FracDone, 0, 0)
 	e.runApp(r, exePath)
+}
+
+// isMainProgramFile reports whether exePath is the flagged real-application
+// executable, as opposed to one of Iris's own legacy stub filenames.
+func isMainProgramFile(r ResultSnapshot, exePath string) bool {
+	base := filepath.Base(exePath)
+	for _, f := range r.Files {
+		if f.MainProgram && f.Name == base {
+			return true
+		}
+	}
+	return false
+}
+
+// writeInitDataFile writes the slot-directory file a real BOINC application
+// reads on boinc_init() (project/task identity, checkpoint period, etc — see
+// https://github.com/BOINC/boinc/blob/master/lib/app_ipc.h, INIT_DATA_FILE).
+// Iris has no shared-memory message channel to the app (that's the "no
+// sandbox" scope this feature deliberately stayed inside — see README), so
+// an app that insists on it will fall back to the BOINC API's own
+// documented "standalone" behavior instead of receiving live suspend/resume
+// or fraction_done polling through that channel; Iris still honors suspend
+// at the OS process level (see pauseProcess) and reads fraction_done.txt
+// exactly as it always has for the demo stub.
+func (e *Engine) writeInitDataFile(r ResultSnapshot) {
+	authenticator, _, _ := e.projects.GetAuthInfo(r.ProjectURL)
+	fp := filepath.Join(r.Slot, "init_data.xml")
+	if err := os.WriteFile(fp, buildInitDataXML(r, authenticator, e.cfg.DataDir, e.cfg.CheckpointSec), 0o644); err != nil {
+		log.Printf("[Worker] Cannot write init_data.xml for %s: %v", r.Name, err)
+	}
+}
+
+func buildInitDataXML(r ResultSnapshot, authenticator, boincDir string, checkpointSec int) []byte {
+	esc := func(s string) string {
+		var b strings.Builder
+		xml.EscapeText(&b, []byte(s))
+		return b.String()
+	}
+	var b strings.Builder
+	b.WriteString("<app_init_data>\n")
+	fmt.Fprintf(&b, "  <app_version>%d</app_version>\n", r.AppVersionNum)
+	if r.AppName != "" {
+		fmt.Fprintf(&b, "  <app_name>%s</app_name>\n", esc(r.AppName))
+	}
+	// Iris keeps a task's input and application files directly in its own
+	// slot directory rather than stock BOINC's shared per-project directory
+	// full of symlinks, so project_dir and slot are the same path here.
+	fmt.Fprintf(&b, "  <project_dir>%s</project_dir>\n", esc(r.Slot))
+	fmt.Fprintf(&b, "  <boinc_dir>%s</boinc_dir>\n", esc(boincDir))
+	if authenticator != "" {
+		fmt.Fprintf(&b, "  <authenticator>%s</authenticator>\n", esc(authenticator))
+	}
+	fmt.Fprintf(&b, "  <wu_name>%s</wu_name>\n", esc(r.WuName))
+	fmt.Fprintf(&b, "  <result_name>%s</result_name>\n", esc(r.Name))
+	fmt.Fprintf(&b, "  <slot>%s</slot>\n", esc(r.Slot))
+	fmt.Fprintf(&b, "  <client_pid>%d</client_pid>\n", os.Getpid())
+	fmt.Fprintf(&b, "  <wu_cpu_time>%.6f</wu_cpu_time>\n", r.CPUTime)
+	if checkpointSec <= 0 {
+		checkpointSec = 600
+	}
+	fmt.Fprintf(&b, "  <checkpoint_period>%d</checkpoint_period>\n", checkpointSec)
+	fmt.Fprintf(&b, "  <fraction_done_start>%.6f</fraction_done_start>\n", r.FracDone)
+	b.WriteString("  <fraction_done_end>1.000000</fraction_done_end>\n")
+	b.WriteString("</app_init_data>\n")
+	return []byte(b.String())
 }
 
 func (e *Engine) downloadFiles(r ResultSnapshot) error {
@@ -461,6 +549,15 @@ func (e *Engine) downloadFiles(r ResultSnapshot) error {
 				return fmt.Errorf("verify %s: MD5 mismatch", f.Name)
 			}
 		}
+		if f.MainProgram && runtime.GOOS != "windows" {
+			// Downloaded files land with the download client's default
+			// permissions, never the execute bit; a real project executable
+			// needs it or exec.Command's Start() just fails with "permission
+			// denied".
+			if err := os.Chmod(dest, 0o755); err != nil {
+				return fmt.Errorf("chmod %s: %w", f.Name, err)
+			}
+		}
 	}
 	return nil
 }
@@ -478,7 +575,32 @@ func md5Matches(path, want string) (bool, error) {
 	return strings.EqualFold(hex.EncodeToString(h.Sum(nil)), strings.TrimSpace(want)), nil
 }
 
+// findExecutable returns the program to launch for a task. When a project
+// sent a real app_version (see ResultSnapshot.Files' MainProgram flag), that
+// downloaded, unsandboxed executable is used only once the person has turned
+// on the experimental "real applications" preference; otherwise Iris falls
+// back to its own legacy stub filenames (used by the demo host and, on a
+// real project, will simply not exist — findExecutable then reports failure
+// rather than silently stalling).
 func (e *Engine) findExecutable(r ResultSnapshot) string {
+	var mainProgram string
+	for _, f := range r.Files {
+		if f.MainProgram {
+			mainProgram = f.Name
+			break
+		}
+	}
+	if mainProgram != "" {
+		p := filepath.Join(r.Slot, mainProgram)
+		if e.realAppsEnabled() {
+			if fileExists(p) {
+				return p
+			}
+		} else {
+			e.warnRealAppsDisabled(r.Name)
+		}
+	}
+
 	if runtime.GOOS == "windows" {
 		candidates := []string{"app.exe", "main.exe"}
 		for _, c := range candidates {
@@ -497,6 +619,23 @@ func (e *Engine) findExecutable(r ResultSnapshot) string {
 		}
 	}
 	return ""
+}
+
+func (e *Engine) realAppsEnabled() bool {
+	return e.cfg.RealAppsEnabledFn != nil && e.cfg.RealAppsEnabledFn()
+}
+
+// warnRealAppsDisabled logs, at most once every ten minutes (the same
+// throttle warnCacheFull uses for a full cache), that a task is stuck
+// because it needs the experimental real-application toggle.
+func (e *Engine) warnRealAppsDisabled(name string) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if time.Since(e.realAppsWarned) < 10*time.Minute {
+		return
+	}
+	e.realAppsWarned = time.Now()
+	log.Printf("[Worker] %s has a real application ready but the experimental \"run real applications\" setting is off (Settings > global preferences); the task cannot start", name)
 }
 
 func (e *Engine) runApp(r ResultSnapshot, exePath string) {
@@ -565,10 +704,44 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
+	// suspendTicker polls the (GUI-settable) suspend flag and pauses/resumes
+	// the real OS process accordingly. This is Iris's whole suspend/resume
+	// mechanism for an unsandboxed app — no shared-memory channel, so an
+	// app's own boinc_time_to_checkpoint()/boinc_is_standalone() never sees
+	// a cooperative suspend request the way it would under the reference
+	// client; the process is simply stopped at the OS level (SIGSTOP/SIGCONT,
+	// or the Windows NtSuspendProcess/NtResumeProcess equivalent) and
+	// resumed later, exactly where it left off.
+	suspendTicker := time.NewTicker(2 * time.Second)
+	defer suspendTicker.Stop()
+	var paused bool
+	var pausedAccum time.Duration
+	var pauseStart time.Time
+	effectiveElapsed := func() time.Duration {
+		d := time.Since(start) - pausedAccum
+		if paused {
+			d -= time.Since(pauseStart)
+		}
+		if d < 0 {
+			d = 0
+		}
+		return d
+	}
+	resumeIfPaused := func() {
+		if !paused {
+			return
+		}
+		if err := resumeProcess(cmd); err != nil {
+			log.Printf("[Worker] Failed to resume %s before stopping it: %v", r.Name, err)
+		}
+		pausedAccum += time.Since(pauseStart)
+		paused = false
+	}
+
 	for {
 		select {
 		case err := <-done:
-			elapsed := time.Since(start).Seconds()
+			elapsed := effectiveElapsed().Seconds()
 			exitCode := classifyExit(err)
 
 			e.mu.RLock()
@@ -624,16 +797,20 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			e.state.UpdateResult(r.Name, StateCompute, progress, elapsed, 0)
 
 		case <-ticker.C:
-			elapsed := time.Since(start)
+			elapsed := effectiveElapsed()
 			maxElap := e.cfg.SlotTimeout
 			if r.MaxElapSec > 0 && time.Duration(r.MaxElapSec*float64(time.Second)) < maxElap {
 				maxElap = time.Duration(r.MaxElapSec * float64(time.Second))
 			}
 			if elapsed > maxElap {
+				resumeIfPaused()
 				terminateProcess(cmd)
 				e.state.UpdateResult(r.Name, StateError, 0, maxElap.Seconds(), ExitExceeded)
 				log.Printf("[Worker] Task %s timed out (%.1fs)", r.Name, maxElap.Seconds())
 				return
+			}
+			if paused {
+				continue // don't report bogus progress climbing while the process isn't actually running
 			}
 			progress := readProgress(r.Slot)
 			frac := progress
@@ -645,8 +822,25 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			}
 			e.state.UpdateResult(r.Name, StateCompute, frac, elapsed.Seconds(), 0)
 
+		case <-suspendTicker.C:
+			suspended := e.state.IsSuspended(r.Name)
+			switch {
+			case suspended && !paused:
+				if err := pauseProcess(cmd); err != nil {
+					log.Printf("[Worker] Failed to suspend %s: %v", r.Name, err)
+					continue
+				}
+				paused = true
+				pauseStart = time.Now()
+				log.Printf("[Worker] Suspended %s", r.Name)
+			case !suspended && paused:
+				resumeIfPaused()
+				log.Printf("[Worker] Resumed %s", r.Name)
+			}
+
 		case <-e.stop:
 			log.Printf("[Worker] Stopping task %s", r.Name)
+			resumeIfPaused()
 			terminateProcess(cmd)
 			select {
 			case <-time.After(30 * time.Second):
@@ -654,7 +848,7 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			case <-done:
 			}
 			e.writeCheckpoint(r)
-			e.state.UpdateResult(r.Name, StateNew, readProgress(r.Slot), time.Since(start).Seconds(), 0)
+			e.state.UpdateResult(r.Name, StateNew, readProgress(r.Slot), effectiveElapsed().Seconds(), 0)
 			return
 		}
 	}

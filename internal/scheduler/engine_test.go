@@ -16,6 +16,7 @@ type fakeState struct {
 	mu       sync.Mutex
 	projects []ProjectInfo
 	results  []ResultInfo
+	added    []ResultInfo
 	hostInfo HostInfoSnapshot
 	messages []string
 	pending  map[string]bool
@@ -30,7 +31,19 @@ func (f *fakeState) GetProjects() []ProjectInfo {
 	defer f.mu.Unlock()
 	return append([]ProjectInfo(nil), f.projects...)
 }
-func (f *fakeState) AddResult(ResultInfo)                                           {}
+
+func (f *fakeState) AddResult(r ResultInfo) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.added = append(f.added, r)
+}
+
+func (f *fakeState) Added() []ResultInfo {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]ResultInfo(nil), f.added...)
+}
+
 func (f *fakeState) GetResults() []ResultInfo                                       { return f.results }
 func (f *fakeState) RemoveResult(string)                                            {}
 func (f *fakeState) GetHostInfo() HostInfoSnapshot                                  { return f.hostInfo }
@@ -217,6 +230,91 @@ func TestDoRPCSendsANonZeroWorkRequest(t *testing.T) {
 
 	if !bytes.Contains(gotBody, []byte("<cpu_req_instances>4")) {
 		t.Errorf("expected a request for 4 idle instances, got body:\n%s", gotBody)
+	}
+}
+
+// TestMatchAppVersionPrefersExactVersionAndPlanClass guards the heuristic
+// documented on matchAppVersion: a result only carries app_version_num and
+// plan_class, never a direct pointer to one <app_version> block, so matching
+// has to be inferred from those two fields (falling back to version_num
+// alone, then to "there was only one on offer" when even plan_class isn't
+// enough to disambiguate).
+func TestMatchAppVersionPrefersExactVersionAndPlanClass(t *testing.T) {
+	versions := []AppVersionXML{
+		{AppName: "cpu_app", VersionNum: 5, PlanClass: ""},
+		{AppName: "cuda_app", VersionNum: 5, PlanClass: "cuda_fma"},
+		{AppName: "old_cpu_app", VersionNum: 3, PlanClass: ""},
+	}
+
+	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 5, PlanClass: "cuda_fma"}); !ok || av.AppName != "cuda_app" {
+		t.Errorf("expected an exact (version, plan_class) match to win, got %+v (ok=%v)", av, ok)
+	}
+	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 3, PlanClass: ""}); !ok || av.AppName != "old_cpu_app" {
+		t.Errorf("expected version_num=3 to match old_cpu_app, got %+v (ok=%v)", av, ok)
+	}
+	if _, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 99}); ok {
+		t.Error("a version_num nothing offers should not match")
+	}
+	if av, ok := matchAppVersion([]AppVersionXML{{AppName: "only_one", VersionNum: 1}}, ReplyResult{AppVersionNum: 42}); !ok || av.AppName != "only_one" {
+		t.Errorf("a single app_version on offer should match even on a version_num mismatch, got %+v (ok=%v)", av, ok)
+	}
+}
+
+// TestDoRPCAttachesTheRealAppExecutableFromAppVersion is the end-to-end
+// check for the roadmap's "run real applications" item: a scheduler reply
+// with an <app_version> naming the real executable must result in a
+// ResultInfo whose Files carries that executable with MainProgram set, not
+// just the workunit's own input files.
+func TestDoRPCAttachesTheRealAppExecutableFromAppVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/xml")
+		w.Write([]byte(`<scheduler_reply>
+  <app_version>
+    <app_name>my_app</app_name>
+    <version_num>7</version_num>
+    <platform>x86_64-pc-linux-gnu</platform>
+    <file_ref>
+      <file_name>my_app_7_x86_64-pc-linux-gnu</file_name>
+      <main_program/>
+    </file_ref>
+  </app_version>
+  <file_info>
+    <name>my_app_7_x86_64-pc-linux-gnu</name>
+    <url>http://example.invalid/download/my_app</url>
+    <nbytes>12345</nbytes>
+  </file_info>
+  <result>
+    <name>wu_1_0</name>
+    <wu_name>wu_1</wu_name>
+    <app_version_num>7</app_version_num>
+  </result>
+</scheduler_reply>`))
+	}))
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "RealApp"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	added := fs.Added()
+	if len(added) != 1 {
+		t.Fatalf("expected exactly one result to be added, got %d", len(added))
+	}
+	r := added[0]
+	if r.AppName != "my_app" {
+		t.Errorf("AppName = %q, want %q", r.AppName, "my_app")
+	}
+	var mainProgram *FileInfo
+	for i := range r.Files {
+		if r.Files[i].MainProgram {
+			mainProgram = &r.Files[i]
+		}
+	}
+	if mainProgram == nil {
+		t.Fatalf("expected one file flagged MainProgram, got files=%+v", r.Files)
+	}
+	if mainProgram.Name != "my_app_7_x86_64-pc-linux-gnu" {
+		t.Errorf("main program file name = %q, want the app_version's own file_ref name", mainProgram.Name)
 	}
 }
 

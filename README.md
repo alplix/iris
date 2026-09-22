@@ -21,9 +21,8 @@ machine in your fleet — local and remote — from one window.
 
 > **Status — please read.** Iris is young. The manager is complete, and the client's plumbing
 > (scheduler requests, file transfers, GUI RPC, credit and statistics, preferences, hardware
-> detection) is implemented and tested. What it **cannot do yet** is run the science applications of
-> real BOINC projects: application versions from the scheduler reply are not downloaded, there is no
-> BOINC API runtime for the apps, and GPU work is not requested. See
+> detection) is implemented and tested. It can now download and run a project's **real** application
+> (an experimental, off-by-default setting — see below), but not yet with a sandbox or GPU work. See
 > [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris is a manager for
 > your machines and a foundation for the client, not a drop-in replacement for the BOINC client.
 
@@ -274,6 +273,7 @@ can be entered by address.
 | `allow_remote_gui_rpc` | `cc_config.xml` | `0` = listen on `127.0.0.1` only |
 | `gpu_cache` block | `cc_config.xml` | [Separate GPU and CPU work](#separate-gpu-and-cpu-work) |
 | `max_ncpus`, `max_ncpus_pct` | Settings → Edit Global Prefs | How many tasks may run at once (applied live) |
+| `real_apps_enabled` | Settings → Edit Global Prefs | Experimental, unsandboxed real application execution — see [Status and roadmap](#status-and-roadmap); off by default |
 
 ## Status and roadmap
 
@@ -298,16 +298,25 @@ Honest overview of what exists today.
   project, so in practice every project is equally weighted today.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
+- **Running real BOINC applications (experimental, off by default).** A scheduler reply's
+  `<app_version>` entries are parsed and matched to each task, the real executable they name is
+  downloaded (and given the execute bit on Linux/macOS) instead of only the old `app`/`main` stub
+  names, and a real `init_data.xml` is written into the slot before launch. Suspend/resume from the
+  UI reaches an already-running task at the OS level (`SIGSTOP`/`SIGCONT`, or the Windows
+  `NtSuspendProcess`/`NtResumeProcess` equivalent — each covered by a test that pauses and resumes a
+  real, running process on its own OS). This is deliberately
+  **not sandboxed**: a downloaded project binary runs with Iris's own privileges, the same trust
+  model as the reference BOINC client, and there is no shared-memory channel to the app (so an app
+  falls back to the BOINC API's own "standalone" behavior rather than getting live checkpoint/suspend
+  callbacks through it). It is off by default; turn it on per host from Settings → a host's Global
+  Preferences, where the risk is stated next to the switch.
 
 **Not implemented yet**
 
-- **Running real BOINC applications.** The `<app_version>` entries of a scheduler reply are not
-  downloaded, the worker only runs an executable named `app` or `main` placed in the slot, and there
-  is no BOINC API runtime (`init_data.xml`, slot link files, checkpoint/heartbeat protocol, signed
-  output upload). Projects' own applications therefore do not run.
 - **Requesting GPU work**: GPU information is not sent in scheduler requests, so projects will not
   send GPU tasks. GPUs are detected and shown, and the work areas are separate, but nothing computes
-  on them yet.
+  on them yet — deferred until real application execution (above) landed, since GPU work would have
+  been unusable before that.
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.
