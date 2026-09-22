@@ -58,3 +58,28 @@ func TestBuildDigestMarksOfflineHosts(t *testing.T) {
 		t.Errorf("digest should mark the unreachable host offline:\n%s", digest)
 	}
 }
+
+// TestBuildDigestIncludesHardwareFacts guards the assistant's ability to
+// answer "what CPU/GPU/RAM does this machine have" — previously the digest
+// only covered fleet/task status, so the model had no way to know and would
+// (correctly, but unhelpfully) say it couldn't check.
+func TestBuildDigestIncludesHardwareFacts(t *testing.T) {
+	mgr := newTestManager(t)
+	digest := buildDigest(mgr)
+	for _, want := range []string{"HW:", "Ryzen", "cores", "RAM", "GeForce RTX 4080 SUPER"} {
+		if !strings.Contains(digest, want) {
+			t.Errorf("digest should mention %q (real hardware facts):\n%s", want, digest)
+		}
+	}
+}
+
+// TestBuildDigestSurfacesTheMostRecentHighPriorityMessage guards the
+// assistant's ability to help troubleshoot ("what's wrong with my client")
+// without the person having to open the Messages page themselves.
+func TestBuildDigestSurfacesTheMostRecentHighPriorityMessage(t *testing.T) {
+	mgr := newTestManager(t)
+	digest := buildDigest(mgr)
+	if !strings.Contains(digest, "Recent issue: Computation for task brca_hydrogen_88 failed") {
+		t.Errorf("digest should surface the demo host's error-priority message:\n%s", digest)
+	}
+}
