@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://nfpm.goreleaser.com/schema.json
+#
+# Packages the manager (iris) and the compute client (irisd) together for
+# desktop Linux (.deb / .rpm). Built from build/bin/{iris,irisd} produced by
+# `wails build` + `go build ./cmd/irisd` — see .github/workflows/release.yml.
+name: iris
+arch: "${IRIS_PKG_ARCH}"
+platform: linux
+version: "${IRIS_PKG_VERSION}"
+section: utils
+priority: optional
+maintainer: "Alperen Yavuz <xalplix@gmail.com>"
+description: |
+  Volunteer computing fleet manager and client, compatible with BOINC
+  projects. Manages multiple servers from one dashboard: tasks, projects,
+  transfers, statistics, hardware detection and an optional AI assistant.
+vendor: alplix
+homepage: https://github.com/alplix/iris
+license: MIT
+
+contents:
+  - src: build/bin/iris
+    dst: /usr/bin/iris
+    file_info:
+      mode: 0755
+  - src: build/bin/irisd
+    dst: /usr/bin/irisd
+    file_info:
+      mode: 0755
+  - src: build/linux/iris.desktop
+    dst: /usr/share/applications/iris.desktop
+    file_info:
+      mode: 0644
+  - src: build/icon.png
+    dst: /usr/share/icons/hicolor/256x256/apps/iris.png
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/iris/LICENSE
+    file_info:
+      mode: 0644
+
+depends:
+  - libgtk-3-0
+  - libwebkit2gtk-4.1-0
+  - libayatana-appindicator3-1
+
+overrides:
+  rpm:
+    depends:
+      - gtk3
+      - webkit2gtk4.1
