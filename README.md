@@ -179,7 +179,7 @@ The manager can also monitor BOINC clients — add them as a server on port `314
 | OS | Architectures | Packaging |
 |---|---|---|
 | Windows 10/11 | amd64, arm64 | NSIS installer + portable zip (WebView2 automatic) |
-| macOS | amd64, arm64 | `.app` bundle (zip); no tray icon |
+| macOS | amd64, arm64 | `.app` bundle (zip), with a menu bar tray icon |
 | Linux | amd64, arm64 | portable `.tar.gz` (GTK3 + WebKitGTK 4.1 required) |
 
 Every release bundles `irisd` alongside the manager. The manager auto-detects it (bundled copy
@@ -327,15 +327,20 @@ Honest overview of what exists today.
   (`gpu_device_num` in `init_data.xml`, plus `CUDA_VISIBLE_DEVICES`/`GPU_DEVICE_ORDINAL`), so a
   multi-GPU host's extra devices sit idle. Covered by real application execution's same experimental,
   off-by-default toggle above — GPU tasks are only ever downloaded and run once that's on.
+- **A macOS menu bar tray icon.** `getlantern/systray` (used on Windows/Linux) and Wails both register
+  their own Cocoa `NSApplicationDelegate` and crash if linked into the same binary, so macOS shipped
+  with no tray at all until now. Fixed with a small native `NSStatusBar`/`NSStatusItem` package
+  (`tray_objc_darwin.m`) that never touches `NSApp`'s delegate — it has nothing to collide with. Built
+  and run on real Apple Silicon hardware to confirm it: AppKit's own logging shows the status item
+  constructed and registered cleanly (`Created scene ... of class NSStatusItemScene`), no crash, no
+  Objective-C duplicate-class warning, and the app kept running normally afterward.
 
 **Not implemented yet**
 
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.
-- Code signing for the Windows/macOS installers (needs a certificate we don't have), and a tray icon
-  on macOS (`getlantern/systray` and Wails both register their own Cocoa app delegate, so the two
-  cannot yet be linked into one binary).
+- Code signing for the Windows/macOS installers — needs a certificate we don't have.
 
 If one of these matters to you, open an issue — the order of the roadmap follows what people ask for.
 
