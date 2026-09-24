@@ -338,13 +338,13 @@ func TestDoRPCAttachesTheRealAppExecutableFromAppVersion(t *testing.T) {
 // all) can itself signal "coprocessor-capable" to some schedulers, which
 // would misrepresent a host with no GPU at all.
 func TestBuildCoprocsXMLOmitsTheElementForAGPUlessHost(t *testing.T) {
-	if c := buildCoprocsXML(HostInfoSnapshot{}); c != nil {
+	if c := buildCoprocsXML(HostInfoSnapshot{}, 0); c != nil {
 		t.Errorf("a GPU-less host must get a nil <coprocs>, got %+v", c)
 	}
 }
 
 func TestBuildCoprocsXMLAdvertisesEachDetectedVendor(t *testing.T) {
-	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 2, NvidiaName: "GeForce RTX 4080 SUPER", AtiCount: 1, AtiName: "Radeon RX 7900"})
+	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 2, NvidiaName: "GeForce RTX 4080 SUPER", AtiCount: 1, AtiName: "Radeon RX 7900"}, 0)
 	if c == nil {
 		t.Fatal("expected a non-nil <coprocs> for a host with GPUs")
 	}
@@ -649,5 +649,34 @@ SIGNED
 	}
 	if len(r.Files) != 2 {
 		t.Errorf("the output must not be treated as a download: %+v", r.Files)
+	}
+}
+
+func TestCoprocsCarryMemoryAndNoDoubledVendor(t *testing.T) {
+	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "NVIDIA GeForce RTX 5070 Ti", NvidiaMem: 17094934528, NvidiaCCMajor: 12, CudaVersion: 13000, NvidiaDriver: "616.92"}, 0)
+	if c.CUDA.Name != "GeForce RTX 5070 Ti" || c.CUDA.TotalGlobalMem != 17094934528 || c.CUDA.Major != 12 || c.CUDA.CudaVersion != 13000 || c.CUDA.DrvVersion != 61692 || c.CUDA.ReqInstances != 1 {
+		t.Errorf("cuda entry wrong: %+v", c.CUDA)
+	}
+	a := buildCoprocsXML(HostInfoSnapshot{AtiCount: 1, AtiName: "AMD Radeon RX 7900", AtiMem: 8 << 30}, 1)
+	if a.ATI.Name != "Radeon RX 7900" || a.ATI.LocalRAM != 8192 || a.ATI.ReqSecs != 0 {
+		t.Errorf("ati entry wrong: %+v", a.ATI)
+	}
+}
+
+func TestRequestNamesTheBrand(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	c.SetSchedulerURL(srv.URL)
+	if _, err := c.SendRequest(&Request{Authenticator: "x", Platform: "p", VersionNum: 802}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "\n <client_brand>Iris</client_brand>\n") {
+		t.Errorf("request should name the client brand on its own line:\n%s", body)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -103,6 +104,13 @@ type HostInfoSnapshot struct {
 	NvidiaName  string
 	AtiCount    int
 	AtiName     string
+	// Video memory in bytes of the first device of each vendor (0 = unknown).
+	NvidiaMem float64
+	AtiMem    float64
+	// CUDA details from nvidia-smi (zero = unknown, nothing is claimed).
+	NvidiaCCMajor, NvidiaCCMinor int
+	CudaVersion                  int
+	NvidiaDriver                 string
 }
 
 type ProjectInfo struct {
@@ -376,7 +384,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		RRSFraction:           shareFraction,
 		PRRSFraction:          shareFraction,
 		// The reference client writes <coprocs> next to <host_info>, not inside it.
-		Coprocs: buildCoprocsXML(hostInfo),
+		Coprocs: buildCoprocsXML(hostInfo, countGPUQueued(e.state.GetResults(), ps.URL)),
 		HostInfo: &HostInfoXML{
 			HostCPID:  e.cfg.HostCPID,
 			OsName:    hostInfo.OSName,
@@ -725,18 +733,67 @@ func buildReport(r ResultInfo) ResultXML {
 // returns nil (omitting the element entirely) for a host with no GPU of a
 // vendor BOINC recognizes here, matching how a real GPU-less host's request
 // looks on the wire.
-func buildCoprocsXML(hi HostInfoSnapshot) *CoprocsXML {
+func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 {
 		return nil
 	}
 	c := &CoprocsXML{}
 	if hi.NvidiaCount > 0 {
-		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: hi.NvidiaName, HaveCUDA: 1, HaveOpenCL: 1}
+		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: coprocName(hi.NvidiaName), HaveCUDA: 1, HaveOpenCL: 1, TotalGlobalMem: hi.NvidiaMem,
+			Major: hi.NvidiaCCMajor, Minor: hi.NvidiaCCMinor, CudaVersion: hi.CudaVersion, DrvVersion: driverInt(hi.NvidiaDriver)}
+		c.CUDA.ReqSecs, c.CUDA.ReqInstances = gpuWorkRequest(hi.NvidiaCount, gpuQueued)
 	}
 	if hi.AtiCount > 0 {
-		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: hi.AtiName, HaveOpenCL: 1}
+		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: coprocName(hi.AtiName), HaveOpenCL: 1, LocalRAM: hi.AtiMem / (1 << 20)}
+		if hi.NvidiaCount <= 0 {
+			c.ATI.ReqSecs, c.ATI.ReqInstances = gpuWorkRequest(hi.AtiCount, gpuQueued)
+		}
 	}
 	return c
+}
+
+// gpuWorkRequest asks for work for every GPU that has nothing queued, the same
+// sizing the CPU request uses. Without it the request says "0 seconds of GPU
+// work" and a project never offers any.
+func gpuWorkRequest(count, queued int) (secs, instances float64) {
+	idle := count - queued
+	if idle <= 0 {
+		return 0, 0
+	}
+	return float64(idle) * targetBufferSecs, float64(idle)
+}
+
+// driverInt encodes "581.42" as 58142, the form CUDA plan classes compare.
+func driverInt(v string) int {
+	f, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+	if err != nil || f <= 0 {
+		return 0
+	}
+	return int(f*100 + 0.5)
+}
+
+// countGPUQueued counts a project's GPU tasks that still occupy a GPU.
+func countGPUQueued(results []ResultInfo, url string) int {
+	n := 0
+	for _, r := range results {
+		if r.ProjectURL == url && r.GPU && r.State < 4 {
+			n++
+		}
+	}
+	return n
+}
+
+// coprocName drops a leading vendor word: project pages already put the
+// vendor in front of the model, so "NVIDIA GeForce ..." was listed as
+// "NVIDIA NVIDIA GeForce ...".
+func coprocName(n string) string {
+	n = strings.TrimSpace(n)
+	for _, v := range []string{"NVIDIA ", "AMD ", "ATI "} {
+		if len(n) > len(v) && strings.EqualFold(n[:len(v)], v) {
+			return strings.TrimSpace(n[len(v):])
+		}
+	}
+	return n
 }
 
 // resourceShareFraction is this project's share of the total resource share

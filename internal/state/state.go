@@ -58,6 +58,8 @@ type Coprocs struct {
 	CudaVersion         float64  `xml:"cudaVersion,omitempty"`
 	NvidiaDriverVersion string   `xml:"nvidiaDriverVersion,omitempty"`
 	NvidiaDevCount      float64  `xml:"nvidia_dev_count,omitempty"`
+	NvidiaCCMajor       int      `xml:"nvidia_cc_major,omitempty"`
+	NvidiaCCMinor       int      `xml:"nvidia_cc_minor,omitempty"`
 	NvidiaDeviceNames   []string `xml:"nvidia_device_name"`
 	AmdDriverVersion    string   `xml:"amd_driver_version,omitempty"`
 	AtiDevCount         float64  `xml:"ati_dev_count,omitempty"`
