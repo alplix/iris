@@ -651,3 +651,32 @@ SIGNED
 		t.Errorf("the output must not be treated as a download: %+v", r.Files)
 	}
 }
+
+func TestCoprocsCarryMemoryAndNoDoubledVendor(t *testing.T) {
+	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "NVIDIA GeForce RTX 5070 Ti", NvidiaMem: 17094934528})
+	if c.CUDA.Name != "GeForce RTX 5070 Ti" || c.CUDA.TotalGlobalMem != 17094934528 {
+		t.Errorf("cuda entry wrong: %+v", c.CUDA)
+	}
+	a := buildCoprocsXML(HostInfoSnapshot{AtiCount: 1, AtiName: "AMD Radeon RX 7900", AtiMem: 8 << 30})
+	if a.ATI.Name != "Radeon RX 7900" || a.ATI.LocalRAM != 8192 {
+		t.Errorf("ati entry wrong: %+v", a.ATI)
+	}
+}
+
+func TestRequestNamesTheBrand(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	c.SetSchedulerURL(srv.URL)
+	if _, err := c.SendRequest(&Request{Authenticator: "x", Platform: "p", VersionNum: 802}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "\n <client_brand>Iris</client_brand>\n") {
+		t.Errorf("request should name the client brand on its own line:\n%s", body)
+	}
+}

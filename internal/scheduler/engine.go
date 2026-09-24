@@ -103,6 +103,9 @@ type HostInfoSnapshot struct {
 	NvidiaName  string
 	AtiCount    int
 	AtiName     string
+	// Video memory in bytes of the first device of each vendor (0 = unknown).
+	NvidiaMem float64
+	AtiMem    float64
 }
 
 type ProjectInfo struct {
@@ -731,12 +734,25 @@ func buildCoprocsXML(hi HostInfoSnapshot) *CoprocsXML {
 	}
 	c := &CoprocsXML{}
 	if hi.NvidiaCount > 0 {
-		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: hi.NvidiaName, HaveCUDA: 1, HaveOpenCL: 1}
+		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: coprocName(hi.NvidiaName), HaveCUDA: 1, HaveOpenCL: 1, TotalGlobalMem: hi.NvidiaMem}
 	}
 	if hi.AtiCount > 0 {
-		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: hi.AtiName, HaveOpenCL: 1}
+		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: coprocName(hi.AtiName), HaveOpenCL: 1, LocalRAM: hi.AtiMem / (1 << 20)}
 	}
 	return c
+}
+
+// coprocName drops a leading vendor word: project pages already put the
+// vendor in front of the model, so "NVIDIA GeForce ..." was listed as
+// "NVIDIA NVIDIA GeForce ...".
+func coprocName(n string) string {
+	n = strings.TrimSpace(n)
+	for _, v := range []string{"NVIDIA ", "AMD ", "ATI "} {
+		if len(n) > len(v) && strings.EqualFold(n[:len(v)], v) {
+			return strings.TrimSpace(n[len(v):])
+		}
+	}
+	return n
 }
 
 // resourceShareFraction is this project's share of the total resource share

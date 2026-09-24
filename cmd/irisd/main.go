@@ -761,7 +761,21 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 		MNbytes: hi.MNbytes, DFree: hi.DFree, DTotal: hi.DTotal, HostCPID: hi.HostCPID,
 		NvidiaCount: int(hi.Coprocs.NvidiaDevCount), NvidiaName: nvidiaName,
 		AtiCount: int(hi.Coprocs.AtiDevCount), AtiName: atiName,
+		NvidiaMem: vramFor(a.s.OpenCLGpuProps, nvidiaName), AtiMem: vramFor(a.s.OpenCLGpuProps, atiName),
 	}
+}
+
+// vramFor finds the video memory (bytes) OpenCL reported for a device name.
+func vramFor(props []state.OpenCLProp, name string) float64 {
+	if name == "" {
+		return 0
+	}
+	for _, p := range props {
+		if p.GlobalMem > 0 && (strings.EqualFold(p.Name, name) || strings.Contains(strings.ToLower(p.Name), strings.ToLower(name)) || strings.Contains(strings.ToLower(name), strings.ToLower(p.Name))) {
+			return p.GlobalMem
+		}
+	}
+	return 0
 }
 
 func (a *stateAdapter) UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64) {

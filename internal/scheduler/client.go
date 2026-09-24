@@ -55,6 +55,10 @@ type Request struct {
 	HostInfo              *HostInfoXML `xml:"host_info"`
 	Results               []ResultXML  `xml:"result"`
 	CoreClientVer         string       `xml:"core_client_version"`
+	// ClientBrand is shown by projects next to the client version (their host
+	// list reads "8.0.2 (Iris)"); the numeric version stays BOINC-compatible
+	// because schedulers refuse anything older than 5.8.
+	ClientBrand string `xml:"client_brand"`
 	// Coprocs lists the host's GPUs. The reference client writes it at the top
 	// level of the request, next to host_info (not inside it).
 	Coprocs *CoprocsXML `xml:"coprocs"`
@@ -116,6 +120,9 @@ type CoprocCudaXML struct {
 	HaveCUDA   int      `xml:"have_cuda"`
 	HaveOpenCL int      `xml:"have_opencl"`
 	PeakFlops  float64  `xml:"peak_flops,omitempty"`
+	// TotalGlobalMem is the video memory in bytes; without it a project lists
+	// the card as having 0 MB.
+	TotalGlobalMem float64 `xml:"totalGlobalMem,omitempty"`
 }
 
 // CoprocAtiXML is the AMD/ATI equivalent of CoprocCudaXML. HaveCAL is left
@@ -129,6 +136,9 @@ type CoprocAtiXML struct {
 	HaveCAL    int      `xml:"have_cal"`
 	HaveOpenCL int      `xml:"have_opencl"`
 	PeakFlops  float64  `xml:"peak_flops,omitempty"`
+	// LocalRAM is the video memory in megabytes (the reference client writes
+	// this one in MB, unlike CUDA's bytes).
+	LocalRAM float64 `xml:"localRAM,omitempty"`
 }
 
 // ResultXML is one finished task as the reference client reports it
@@ -489,6 +499,9 @@ func marshalRequest(req *Request) ([]byte, error) {
 func (c *Client) SendRequest(req *Request) (*Reply, error) {
 	if c.authToken != "" {
 		req.Authenticator = c.authToken
+	}
+	if req.ClientBrand == "" {
+		req.ClientBrand = product.Name
 	}
 	if req.CoreClientVer == "" {
 		req.CoreClientVer = product.UserAgent()
