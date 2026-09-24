@@ -1780,7 +1780,7 @@ window._openPrefs = async (hostId) => {
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
   const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => `${k}=${v}`).join('\n')
-  const realAppsOn = prefs?.real_apps_enabled === '1'
+  const realAppsOn = prefs?.real_apps_enabled !== '0' // on unless explicitly turned off
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
       <div class="modal" style="max-width:540px">
@@ -1815,7 +1815,7 @@ window._toggleRealApps = async (hostId, on) => {
     let prefs = {}
     try { prefs = await api('GetPrefs', hostId) } catch (e) {}
     const fields = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => [k, v])
-    if (on) fields.push(['real_apps_enabled', '1'])
+    fields.push(['real_apps_enabled', on ? '1' : '0'])
     await api('SetPrefs', hostId, fields)
     toast(T('set.saved'), 'ok')
   } catch (e) {
@@ -1834,7 +1834,7 @@ window._savePrefs = async (hostId) => {
     if (!k || k === 'real_apps_enabled') continue // has its own checkbox, applied immediately by _toggleRealApps
     fields.push([k, v])
   }
-  if ($('#real-apps-toggle')?.checked) fields.push(['real_apps_enabled', '1'])
+  fields.push(['real_apps_enabled', $('#real-apps-toggle')?.checked ? '1' : '0'])
   try {
     await api('SetPrefs', hostId, fields)
     state.modal = null

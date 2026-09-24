@@ -131,18 +131,59 @@ type CoprocAtiXML struct {
 	PeakFlops  float64  `xml:"peak_flops,omitempty"`
 }
 
+// ResultXML is one finished task as the reference client reports it
+// (RESULT::write with to_server=true in client/result.cpp): only completed
+// results are ever sent, with their final times, exit status, the stderr text
+// and a <file_info> for every output file that was uploaded first.
 type ResultXML struct {
-	XMLName        xml.Name `xml:"result"`
-	Name           string   `xml:"name"`
-	WuName         string   `xml:"wu_name"`
-	ProjectURL     string   `xml:"project_url"`
-	FractionDone   float64  `xml:"fraction_done"`
-	CPUTime        float64  `xml:"cpu_time"`
-	ExitStatus     int      `xml:"exit_status"`
-	State          int      `xml:"state"`
-	Platform       string   `xml:"platform"`
-	VersionNum     int      `xml:"version_num"`
-	ReportDeadline float64  `xml:"report_deadline"`
+	XMLName          xml.Name        `xml:"result"`
+	Name             string          `xml:"name"`
+	FinalCPUTime     float64         `xml:"final_cpu_time"`
+	FinalElapsedTime float64         `xml:"final_elapsed_time"`
+	ExitStatus       int             `xml:"exit_status"`
+	State            int             `xml:"state"`
+	Platform         string          `xml:"platform"`
+	VersionNum       int             `xml:"version_num"`
+	PlanClass        string          `xml:"plan_class,omitempty"`
+	AppVersionNum    int             `xml:"app_version_num,omitempty"`
+	StderrOut        *RawXML         `xml:"stderr_out"`
+	FileInfos        []ResultFileXML `xml:"file_info"`
+}
+
+// RawXML writes its text as-is (used for <stderr_out>, whose CDATA block must
+// not be escaped).
+type RawXML struct {
+	Inner string `xml:",innerxml"`
+}
+
+// ResultFileXML is an uploaded output file, in FILE_INFO::write's to_server form.
+type ResultFileXML struct {
+	Name      string  `xml:"name"`
+	NBytes    float64 `xml:"nbytes"`
+	MaxNBytes float64 `xml:"max_nbytes"`
+	MD5       string  `xml:"md5_cksum"`
+}
+
+// BOINC's result states as a scheduler expects them in a report.
+const (
+	ReportStateComputeError  = 3
+	ReportStateFilesUploaded = 5
+	maxStderrBytes           = 63 * 1024
+)
+
+// NewStderrOut builds the <stderr_out> block: the client version and the
+// task's stderr text in a CDATA section, capped like the reference client.
+func NewStderrOut(clientVersion, stderr string) *RawXML {
+	if len(stderr) > maxStderrBytes {
+		stderr = stderr[len(stderr)-maxStderrBytes:]
+	}
+	stderr = strings.ReplaceAll(strings.ToValidUTF8(stderr, "?"), "]]>", "]] >")
+	var b strings.Builder
+	b.WriteString("\n <core_client_version>" + clientVersion + "</core_client_version>\n")
+	if strings.TrimSpace(stderr) != "" {
+		b.WriteString("<![CDATA[\n" + stderr + "\n]]>\n")
+	}
+	return &RawXML{Inner: b.String()}
 }
 
 type Reply struct {
@@ -175,6 +216,13 @@ type Reply struct {
 	FileInfos     []FileInfoXML   `xml:"file_info"`
 	FileTransfers []ReplyFileXfer `xml:"file_transfer"`
 	Results       []ReplyResult   `xml:"result"`
+	// Workunits carry each task's input files and command line; a <result>
+	// only names its workunit (wu_name) and lists its OUTPUT files.
+	Workunits []WorkunitXML `xml:"workunit"`
+	// ResultAcks confirm results we reported; only those may be forgotten.
+	ResultAcks []ResultAckXML `xml:"result_ack"`
+	// ResultAborts name tasks the server no longer wants computed.
+	ResultAborts []ResultAckXML `xml:"result_abort"`
 	// AppVersions describes the real, project-specific executables the
 	// scheduler is offering for the platforms/plan classes this host asked
 	// about. A ReplyResult only carries enough (app_version_num, plan_class)
@@ -202,6 +250,7 @@ type AppVersionXML struct {
 type AppFileRefXML struct {
 	XMLName     xml.Name  `xml:"file_ref"`
 	FileName    string    `xml:"file_name"`
+	OpenName    string    `xml:"open_name"`
 	MainProgram *struct{} `xml:"main_program"`
 }
 
@@ -218,12 +267,70 @@ type ReplyFileXfer struct {
 	NBytes  float64  `xml:"nbytes"`
 }
 
+// WorkunitXML is a <workunit> of a scheduler reply (WORKUNIT::parse).
+type WorkunitXML struct {
+	XMLName    xml.Name     `xml:"workunit"`
+	Name       string       `xml:"name"`
+	AppName    string       `xml:"app_name"`
+	VersionNum int          `xml:"version_num"`
+	CmdLine    string       `xml:"command_line"`
+	FileRef    []FileRefXML `xml:"file_ref"`
+}
+
+// ResultAckXML is a <result_ack> / <result_abort> entry.
+type ResultAckXML struct {
+	Name string `xml:"name"`
+}
+
+// FileInfoXML is a <file_info> of a scheduler reply (FILE_INFO::parse): an
+// input or application file to download, or — marked generated_locally — an
+// output file the task must produce and upload, with the signed upload
+// certificate the file upload handler checks.
 type FileInfoXML struct {
-	XMLName xml.Name `xml:"file_info"`
-	Name    string   `xml:"name"`
-	URL     string   `xml:"url"`
-	NBytes  float64  `xml:"nbytes"`
-	MD5     string   `xml:"md5"`
+	XMLName       xml.Name  `xml:"file_info"`
+	Name          string    `xml:"name"`
+	URLs          []string  `xml:"url"`
+	DownloadURLs  []string  `xml:"download_url"`
+	UploadURLs    []string  `xml:"upload_url"`
+	NBytes        float64   `xml:"nbytes"`
+	MaxNBytes     float64   `xml:"max_nbytes"`
+	MD5           string    `xml:"md5"`
+	MD5Cksum      string    `xml:"md5_cksum"`
+	XMLSignature  string    `xml:"xml_signature"`
+	Generated     *struct{} `xml:"generated_locally"`
+	UploadPresent *struct{} `xml:"upload_when_present"`
+}
+
+// Checksum is the file's MD5 (real servers write <md5_cksum>).
+func (f FileInfoXML) Checksum() string {
+	if f.MD5Cksum != "" {
+		return f.MD5Cksum
+	}
+	return f.MD5
+}
+
+// DownloadURL is the first address to fetch the file from.
+func (f FileInfoXML) DownloadURL() string {
+	if len(f.DownloadURLs) > 0 {
+		return f.DownloadURLs[0]
+	}
+	if len(f.URLs) > 0 {
+		return f.URLs[0]
+	}
+	return ""
+}
+
+// UploadTargets lists every address the file may be uploaded to.
+func (f FileInfoXML) UploadTargets() []string {
+	if len(f.UploadURLs) > 0 {
+		return f.UploadURLs
+	}
+	return f.URLs
+}
+
+// IsOutput reports whether the file is one the task produces.
+func (f FileInfoXML) IsOutput() bool {
+	return f.Generated != nil || f.UploadPresent != nil
 }
 
 type ReplyResult struct {
@@ -241,13 +348,20 @@ type ReplyResult struct {
 	CmdLine          string       `xml:"cmd_line"`
 	RsEnd            string       `xml:"rs_end"`
 	PlanClass        string       `xml:"plan_class"`
+	VersionNum       int          `xml:"version_num"`
+	Platform         string       `xml:"platform"`
 	FileRef          []FileRefXML `xml:"file_ref"`
 }
 
+// FileRefXML is a <file_ref>: which file (by physical name), under which
+// logical name the application opens it (open_name), and for an output whether
+// the client copies rather than moves it.
 type FileRefXML struct {
-	XMLName xml.Name `xml:"file_ref"`
-	Name    string   `xml:"file_name"`
-	MD5     string   `xml:"md5"`
+	XMLName  xml.Name  `xml:"file_ref"`
+	Name     string    `xml:"file_name"`
+	OpenName string    `xml:"open_name"`
+	MD5      string    `xml:"md5"`
+	Optional *struct{} `xml:"optional"`
 }
 
 func NewClient(projectURL string) *Client {

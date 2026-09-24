@@ -168,6 +168,22 @@ func (s *Store) Bool(key string) bool {
 	}
 }
 
+// BoolDefault is Bool for a preference that is on unless explicitly turned
+// off: an unset key returns def, "0"/"false"/"no" is off, anything truthy on.
+func (s *Store) BoolDefault(key string, def bool) bool {
+	s.mu.RLock()
+	v := strings.ToLower(strings.TrimSpace(s.vals[key]))
+	s.mu.RUnlock()
+	switch v {
+	case "":
+		return def
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
 // MaxCPUs is how many tasks may run at once on a host with ncpu cores, after
 // applying max_ncpus and max_ncpus_pct. It is never below 1.
 func (s *Store) MaxCPUs(ncpu int) int {

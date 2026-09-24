@@ -214,7 +214,7 @@ func runDaemon() {
 		MaxConcurrentFn:   func() int { return overrides.MaxCPUs(runtime.NumCPU()) },
 		DataDir:           dataDir,
 		UserAgent:         product.UserAgent(),
-		RealAppsEnabledFn: func() bool { return overrides.Bool(prefs.RealAppsKey) },
+		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
 	})
 	workerEngine.Start()
 
@@ -689,22 +689,31 @@ func (a *stateAdapter) GetProjects() []scheduler.ProjectInfo {
 func (a *stateAdapter) AddResult(r scheduler.ResultInfo) {
 	var files []state.FileInfo
 	for _, f := range r.Files {
-		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram})
+		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName})
+	}
+	var outputs []state.OutputFile
+	for _, o := range r.Outputs {
+		outputs = append(outputs, state.OutputFile{Name: o.Name, OpenName: o.OpenName, URLs: o.URLs, MaxNBytes: o.MaxNBytes, Signature: o.Signature, Optional: o.Optional})
 	}
 	resources := ""
 	if r.GPU {
 		resources = "gpu"
 	}
 	a.s.AddResult(state.Result{
-		Name:          r.Name,
-		WuName:        r.WuName,
-		ProjectURL:    r.ProjectURL,
-		State:         r.State,
-		CmdLine:       r.CmdLine,
-		AppVersionNum: r.AppVersionNum,
-		AppName:       r.AppName,
-		Resources:     resources,
-		Files:         files,
+		Name:           r.Name,
+		WuName:         r.WuName,
+		ProjectURL:     r.ProjectURL,
+		State:          r.State,
+		CmdLine:        r.CmdLine,
+		AppVersionNum:  r.AppVersionNum,
+		AppName:        r.AppName,
+		VersionNum:     r.VersionNum,
+		Platform:       r.Platform,
+		PlanClass:      r.PlanClass,
+		Resources:      resources,
+		Files:          files,
+		Outputs:        outputs,
+		ReportDeadline: r.Deadline,
 	})
 }
 
@@ -713,12 +722,21 @@ func (a *stateAdapter) GetResults() []scheduler.ResultInfo {
 	defer a.s.RUnlock()
 	var out []scheduler.ResultInfo
 	for _, r := range a.s.Results {
+		var outs []scheduler.OutputInfo
+		for _, o := range r.Outputs {
+			outs = append(outs, scheduler.OutputInfo{
+				Name: o.Name, OpenName: o.OpenName, URLs: o.URLs, MaxNBytes: o.MaxNBytes,
+				Signature: o.Signature, Optional: o.Optional, Present: o.Present,
+				NBytes: o.NBytes, MD5: o.MD5, Uploaded: o.Uploaded,
+			})
+		}
 		out = append(out, scheduler.ResultInfo{
 			Name: r.Name, WuName: r.WuName, ProjectURL: r.ProjectURL,
 			State: r.State, FracDone: r.FractionDone, CPUTime: r.CurrentCPUTime,
 			GPU: r.IsGPU(), Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
-			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum,
-			ReadyToReport: r.ReadyToReport,
+			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum, VersionNum: r.VersionNum,
+			ReadyToReport: r.ReadyToReport, Platform: r.Platform, PlanClass: r.PlanClass,
+			Slot: r.SlotPath, Outputs: outs,
 		})
 	}
 	return out
@@ -777,8 +795,17 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 	}
 	var out []worker.ResultSnapshot
 	for _, r := range a.s.Results {
+		var outs []worker.OutputRef
+		for _, o := range r.Outputs {
+			outs = append(outs, worker.OutputRef{
+				Name: o.Name, OpenName: o.OpenName, URLs: o.URLs, MaxNBytes: o.MaxNBytes,
+				Signature: o.Signature, Optional: o.Optional, Present: o.Present,
+				NBytes: o.NBytes, MD5: o.MD5, Uploaded: o.Uploaded,
+			})
+		}
 		out = append(out, worker.ResultSnapshot{
-			Name: r.Name, WuName: r.WuName, ProjectURL: r.ProjectURL,
+			Outputs: outs,
+			Name:    r.Name, WuName: r.WuName, ProjectURL: r.ProjectURL,
 			State: r.State, FracDone: r.FractionDone, CPUTime: r.CurrentCPUTime,
 			Slot: r.SlotPath, GPU: r.IsGPU(),
 			Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
@@ -808,7 +835,7 @@ func convertFiles(files []state.FileInfo) []worker.FileRef {
 	var out []worker.FileRef
 	for _, f := range files {
 		out = append(out, worker.FileRef{
-			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram,
+			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName,
 		})
 	}
 	return out
@@ -847,10 +874,37 @@ func (a *stateWorkerAdapter) UpdateResult(name string, st int, fracDone float64,
 			r.ActiveTask = 0
 		}
 		if st == worker.StateReady || st == worker.StateError {
+			// A finished task is reported only once every output file it
+			// produced has been uploaded; MarkOutputUploaded then flips this.
 			r.ReadyToReport = 1
+			if st == worker.StateReady {
+				for _, o := range r.Outputs {
+					if o.Present && !o.Uploaded {
+						r.ReadyToReport = 0
+					}
+				}
+			}
+		} else {
+			r.ReadyToReport = 0
 		}
 		return
 	}
+}
+
+func (a *stateWorkerAdapter) SetOutputs(name string, outs []worker.OutputRef) {
+	var conv []state.OutputFile
+	for _, o := range outs {
+		conv = append(conv, state.OutputFile{
+			Name: o.Name, OpenName: o.OpenName, URLs: o.URLs, MaxNBytes: o.MaxNBytes,
+			Signature: o.Signature, Optional: o.Optional, Present: o.Present,
+			NBytes: o.NBytes, MD5: o.MD5, Uploaded: o.Uploaded,
+		})
+	}
+	a.s.SetOutputs(name, conv)
+}
+
+func (a *stateWorkerAdapter) MarkOutputUploaded(name, file string) bool {
+	return a.s.MarkOutputUploaded(name, file)
 }
 
 func (a *stateWorkerAdapter) SetSlotPath(name, slotPath string) {

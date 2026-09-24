@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -129,11 +131,31 @@ type ResultInfo struct {
 	ExitStatus    int
 	CmdLine       string
 	AppVersionNum int
+	VersionNum    int
 	// AppName is the matched app_version's own name, if the scheduler sent
 	// one (see matchAppVersion) — empty for the demo/legacy stub path.
 	AppName       string
 	Files         []FileInfo
 	ReadyToReport int
+	// What a completed result's report needs: which build ran it, where its
+	// slot (stderr) is, and the output files that were uploaded.
+	Platform  string
+	PlanClass string
+	Outputs   []OutputInfo
+}
+
+// OutputInfo is one file a task produces and uploads (see state.OutputFile).
+type OutputInfo struct {
+	Name      string
+	OpenName  string
+	URLs      []string
+	MaxNBytes float64
+	Signature string
+	Optional  bool
+	Present   bool
+	NBytes    float64
+	MD5       string
+	Uploaded  bool
 }
 
 type FileInfo struct {
@@ -144,6 +166,8 @@ type FileInfo struct {
 	// MainProgram marks the one file (from a matched app_version) that is the
 	// actual executable to launch, as opposed to an input/library file.
 	MainProgram bool
+	// OpenName is the logical name the application opens the file by.
+	OpenName string
 }
 
 func NewEngine(state StateManager, cache CacheManager, cfg EngineConfig) *Engine {
@@ -372,22 +396,15 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		CPUReqInstances: cpuReqInstances,
 	}
 
+	var reportedNow []ResultInfo
 	for _, r := range e.state.GetResults() {
-		if r.ProjectURL != ps.URL {
+		// Only finished results whose output files are safely uploaded are
+		// reported; a running or still-uploading task must not be.
+		if r.ProjectURL != ps.URL || r.ReadyToReport != 1 || (r.State != 4 && r.State != 5) {
 			continue
 		}
-		req.Results = append(req.Results, ResultXML{
-			Name:           r.Name,
-			WuName:         r.WuName,
-			ProjectURL:     r.ProjectURL,
-			FractionDone:   r.FracDone,
-			CPUTime:        r.CPUTime,
-			ExitStatus:     r.ExitStatus,
-			State:          r.State,
-			Platform:       Platform(),
-			VersionNum:     800,
-			ReportDeadline: r.Deadline,
-		})
+		req.Results = append(req.Results, buildReport(r))
+		reportedNow = append(reportedNow, r)
 	}
 
 	reply, err := cli.SendRequest(req)
@@ -454,28 +471,56 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		fileMap[fi.Name] = fi
 	}
 
-	for _, rr := range reply.Results {
-		e.handleWork(ps, rr, fileMap, reply.AppVersions)
+	wuMap := make(map[string]WorkunitXML)
+	for _, wu := range reply.Workunits {
+		wuMap[wu.Name] = wu
 	}
-
-	echoed := make(map[string]bool)
-	for _, rr := range reply.Results {
-		echoed[rr.Name] = true
-	}
-	reported := make(map[string]bool)
+	have := make(map[string]bool)
 	for _, r := range e.state.GetResults() {
-		if r.ProjectURL == ps.URL && (r.State == 4 || r.State == 5) && r.ReadyToReport == 1 {
-			reported[r.Name] = true
-		}
+		have[r.Name] = true
 	}
-	removed := 0
-	for name := range reported {
-		if echoed[name] {
+	for _, rr := range reply.Results {
+		if have[rr.Name] {
+			// A resent copy of a task we already hold must not overwrite it.
 			continue
 		}
-		e.state.RemoveResult(name)
-		removed++
+		e.handleWork(ps, rr, fileMap, wuMap, reply.AppVersions)
 	}
+
+	// Only results the server acknowledged are forgotten; anything else is
+	// reported again next time (BOINC's own rule — a lost reply must not lose
+	// a finished task).
+	acked := make(map[string]bool)
+	for _, a := range reply.ResultAcks {
+		acked[a.Name] = true
+	}
+	removed := 0
+	for _, r := range reportedNow {
+		if !acked[r.Name] {
+			continue
+		}
+		if r.Slot != "" {
+			e.cache.FreeSlot(r.Slot)
+		}
+		e.state.RemoveResult(r.Name)
+		removed++
+		e.state.AddMessage(fmt.Sprintf("Reported completed task %s to the project", r.Name), ps.URL, 1)
+	}
+	if len(reportedNow) > 0 && removed < len(reportedNow) {
+		e.state.AddMessage(fmt.Sprintf("Reported %d task(s); the server has not confirmed %d of them yet", len(reportedNow), len(reportedNow)-removed), ps.URL, 2)
+	}
+	// Tasks the server no longer wants are dropped if they have not started.
+	aborted := make(map[string]bool)
+	for _, a := range reply.ResultAborts {
+		aborted[a.Name] = true
+	}
+	for _, r := range e.state.GetResults() {
+		if aborted[r.Name] && r.ProjectURL == ps.URL && r.State < 2 {
+			e.state.RemoveResult(r.Name)
+			e.state.AddMessage(fmt.Sprintf("Task %s was cancelled by the project", r.Name), ps.URL, 1)
+		}
+	}
+	reported := reportedNow
 
 	log.Printf("[Scheduler] RPC done for %s, credit=%.1f, got %d tasks, reported %d, removed %d",
 		ps.URL, userTotal, len(reply.Results), len(reported), removed)
@@ -488,28 +533,71 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 }
 
-func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML, appVersions []AppVersionXML) {
+func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML, wuMap map[string]WorkunitXML, appVersions []AppVersionXML) {
 	log.Printf("[Scheduler] Work: %s (wu=%s, prio=%.2f, plan=%s)", rr.Name, rr.WuName, rr.Priority, rr.PlanClass)
 	isGPU := detectGPUFromResult(rr)
+	wu, haveWU := wuMap[rr.WuName]
+
+	inputFile := func(ref FileRefXML) FileInfo {
+		if fi, ok := fileMap[ref.Name]; ok {
+			return FileInfo{Name: fi.Name, URL: fi.DownloadURL(), NBytes: fi.NBytes, MD5: fi.Checksum(), OpenName: ref.OpenName}
+		}
+		return FileInfo{Name: ref.Name, MD5: ref.MD5, OpenName: ref.OpenName}
+	}
 
 	var files []FileInfo
+	var outputs []OutputInfo
+	// A real reply lists a task's inputs in its <workunit> and only the OUTPUT
+	// files (generated_locally, with an upload address and signed certificate)
+	// in the <result>. Older/simple servers put plain download refs straight
+	// in the result, which is still accepted.
+	if haveWU {
+		for _, ref := range wu.FileRef {
+			files = append(files, inputFile(ref))
+		}
+	}
 	for _, ref := range rr.FileRef {
 		fi, ok := fileMap[ref.Name]
-		if ok {
-			files = append(files, FileInfo{Name: fi.Name, URL: fi.URL, NBytes: fi.NBytes, MD5: fi.MD5})
-		} else {
-			files = append(files, FileInfo{Name: ref.Name, MD5: ref.MD5})
+		if ok && fi.IsOutput() {
+			open := ref.OpenName
+			if open == "" {
+				open = fi.Name
+			}
+			outputs = append(outputs, OutputInfo{
+				Name: fi.Name, OpenName: open, URLs: fi.UploadTargets(),
+				MaxNBytes: fi.MaxNBytes, Signature: fi.XMLSignature, Optional: ref.Optional != nil,
+			})
+			continue
+		}
+		if !haveWU {
+			files = append(files, inputFile(ref))
 		}
 	}
 
 	appName := ""
-	if av, ok := matchAppVersion(appVersions, rr); ok {
+	if haveWU {
+		appName = wu.AppName
+	}
+	platform := Platform()
+	planClass := rr.PlanClass
+	versionNum := rr.AppVersionNum
+	if versionNum == 0 {
+		versionNum = rr.VersionNum
+	}
+	if av, ok := matchAppVersion(appVersions, rr, appName); ok {
 		appName = av.AppName
+		if av.Platform != "" {
+			platform = av.Platform
+		}
+		if av.VersionNum != 0 {
+			versionNum = av.VersionNum
+		}
+		planClass = av.PlanClass
 		for _, ref := range av.FileRef {
 			fi, ok := fileMap[ref.FileName]
-			fInfo := FileInfo{Name: ref.FileName, MainProgram: ref.MainProgram != nil}
+			fInfo := FileInfo{Name: ref.FileName, OpenName: ref.OpenName, MainProgram: ref.MainProgram != nil}
 			if ok {
-				fInfo.URL, fInfo.NBytes, fInfo.MD5 = fi.URL, fi.NBytes, fi.MD5
+				fInfo.URL, fInfo.NBytes, fInfo.MD5 = fi.DownloadURL(), fi.NBytes, fi.Checksum()
 			}
 			files = append(files, fInfo)
 		}
@@ -520,54 +608,116 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 		// with what this result asked for — the task will fall back to the
 		// legacy demo-stub executable names in worker.findExecutable, which
 		// won't exist, so it will visibly fail rather than silently stall.
-		log.Printf("[Scheduler] %s: no app_version matches app_version_num=%d plan_class=%q",
-			rr.Name, rr.AppVersionNum, rr.PlanClass)
+		log.Printf("[Scheduler] %s: no app_version matches version_num=%d plan_class=%q",
+			rr.Name, versionNum, rr.PlanClass)
 	}
 
+	cmdLine := rr.CmdLine
+	if cmdLine == "" && haveWU {
+		cmdLine = wu.CmdLine
+	}
 	result := ResultInfo{
 		Name:          rr.Name,
 		WuName:        rr.WuName,
 		ProjectURL:    ps.URL,
 		State:         0,
 		GPU:           isGPU,
-		Deadline:      rr.EarliestDeadline,
-		CmdLine:       rr.CmdLine,
-		AppVersionNum: rr.AppVersionNum,
+		Deadline:      rr.ReportDeadline,
+		CmdLine:       cmdLine,
+		AppVersionNum: versionNum,
+		VersionNum:    versionNum,
 		AppName:       appName,
+		Platform:      platform,
+		PlanClass:     planClass,
 		Files:         files,
+		Outputs:       outputs,
+	}
+	if result.Deadline == 0 {
+		result.Deadline = rr.EarliestDeadline
 	}
 	e.state.AddResult(result)
 	e.state.Save()
-	log.Printf("[Scheduler] Assigned %s (gpu=%v, files=%d, cmdline=%q)", rr.Name, isGPU, len(files), rr.CmdLine)
+	log.Printf("[Scheduler] Assigned %s (gpu=%v, files=%d, outputs=%d, cmdline=%q)", rr.Name, isGPU, len(files), len(outputs), cmdLine)
 }
 
-// matchAppVersion finds the app_version a result belongs to. BOINC's own
-// scheduler reply has no single field tying a <result> straight to one
-// <app_version> — real clients resolve it through the workunit's app_id,
-// which this codebase does not parse (see the "Not implemented yet" caveat
-// this leaves in place). Instead this matches on what a <result> does carry:
-// app_version_num and plan_class, which is exact whenever a project (as
-// almost all do) only ever offers one app per plan class per platform to a
-// given host in a single RPC. A project multiplexing several distinct apps
-// under identical (version_num, plan_class) pairs in the same reply would
-// defeat this — considered rare enough to accept for now.
-func matchAppVersion(appVersions []AppVersionXML, rr ReplyResult) (AppVersionXML, bool) {
+// matchAppVersion finds the app_version a result belongs to. The reply ties a
+// task to one through its workunit's app_name plus the result's version_num
+// and plan_class; when an older reply carries none of that, a single offered
+// app_version is taken as the only possibility.
+func matchAppVersion(appVersions []AppVersionXML, rr ReplyResult, appName string) (AppVersionXML, bool) {
+	ver := rr.AppVersionNum
+	if ver == 0 {
+		ver = rr.VersionNum
+	}
 	for _, av := range appVersions {
-		if av.VersionNum == rr.AppVersionNum && av.PlanClass == rr.PlanClass {
+		if (appName == "" || av.AppName == appName) && av.VersionNum == ver && av.PlanClass == rr.PlanClass {
 			return av, true
 		}
 	}
-	// plan_class is often empty for a plain CPU app on both sides; still
-	// require the version number to match rather than guessing blindly.
 	for _, av := range appVersions {
-		if av.VersionNum == rr.AppVersionNum {
+		if (appName == "" || av.AppName == appName) && av.VersionNum == ver {
 			return av, true
+		}
+	}
+	if appName != "" {
+		var only []AppVersionXML
+		for _, av := range appVersions {
+			if av.AppName == appName {
+				only = append(only, av)
+			}
+		}
+		if len(only) == 1 {
+			return only[0], true
 		}
 	}
 	if len(appVersions) == 1 {
 		return appVersions[0], true
 	}
 	return AppVersionXML{}, false
+}
+
+// buildReport turns a finished, fully uploaded result into what a scheduler
+// expects in its request.
+func buildReport(r ResultInfo) ResultXML {
+	state := ReportStateFilesUploaded
+	if r.State == 5 {
+		state = ReportStateComputeError
+	}
+	platform := r.Platform
+	if platform == "" {
+		platform = Platform()
+	}
+	ver := r.VersionNum
+	if ver == 0 {
+		ver = r.AppVersionNum
+	}
+	if ver == 0 {
+		ver = 800
+	}
+	var stderr string
+	if r.Slot != "" {
+		if b, err := os.ReadFile(filepath.Join(r.Slot, "stderr.txt")); err == nil {
+			stderr = string(b)
+		}
+	}
+	x := ResultXML{
+		Name:             r.Name,
+		FinalCPUTime:     r.CPUTime,
+		FinalElapsedTime: r.CPUTime,
+		ExitStatus:       r.ExitStatus,
+		State:            state,
+		Platform:         platform,
+		VersionNum:       ver,
+		PlanClass:        r.PlanClass,
+		AppVersionNum:    ver,
+		StderrOut:        NewStderrOut(product.Version, stderr),
+	}
+	for _, o := range r.Outputs {
+		if o.Present && o.Uploaded {
+			x.FileInfos = append(x.FileInfos, ResultFileXML{Name: o.Name, NBytes: o.NBytes, MaxNBytes: o.MaxNBytes, MD5: o.MD5})
+		}
+	}
+	return x
 }
 
 // buildCoprocsXML turns the host's detected GPUs into the <coprocs> block a

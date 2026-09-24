@@ -149,9 +149,14 @@ type Result struct {
 	CmdLine                   string     `xml:"cmd_line"`
 	AppVersionNum             int        `xml:"app_version_num"`
 	AppName                   string     `xml:"app_name"`
+	Platform                  string     `xml:"platform"`
+	PlanClass                 string     `xml:"plan_class"`
 	Files                     []FileInfo `xml:"file_info"`
-	StdOut                    string     `xml:"stdout"`
-	StdErr                    string     `xml:"stderr"`
+	// Outputs are the files the task must produce and upload before it can be
+	// reported (from the reply's generated_locally file_infos).
+	Outputs []OutputFile `xml:"output_file"`
+	StdOut  string       `xml:"stdout"`
+	StdErr  string       `xml:"stderr"`
 }
 
 type FileInfo struct {
@@ -162,6 +167,26 @@ type FileInfo struct {
 	// MainProgram marks the downloaded file (from a project's app_version)
 	// that is the real executable to launch for this task.
 	MainProgram bool `xml:"main_program,omitempty"`
+	// OpenName is the logical name the application opens the file by; the
+	// downloaded file is also made available under it in the task's slot.
+	OpenName string `xml:"open_name,omitempty"`
+}
+
+// OutputFile is one file a task produces. Name is the physical name the
+// project's upload certificate was signed for, OpenName the name the
+// application writes it under in its slot directory.
+type OutputFile struct {
+	Name      string   `xml:"name"`
+	OpenName  string   `xml:"open_name,omitempty"`
+	URLs      []string `xml:"url"`
+	MaxNBytes float64  `xml:"max_nbytes"`
+	Signature string   `xml:"xml_signature"`
+	Optional  bool     `xml:"optional,omitempty"`
+	// Filled in once the task has finished and the file exists.
+	Present  bool    `xml:"present,omitempty"`
+	NBytes   float64 `xml:"nbytes,omitempty"`
+	MD5      string  `xml:"md5_cksum,omitempty"`
+	Uploaded bool    `xml:"uploaded,omitempty"`
 }
 
 func (r *Result) IsGPU() bool {
@@ -307,6 +332,46 @@ func (s *State) AddResult(r Result) {
 		}
 	}
 	s.Results = append(s.Results, r)
+}
+
+// SetOutputs stores what the finished task actually produced (present/size/MD5
+// per output) and, when nothing is left to upload, marks it ready to report.
+func (s *State) SetOutputs(name string, outs []OutputFile) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Results {
+		if s.Results[i].Name == name {
+			s.Results[i].Outputs = outs
+			return
+		}
+	}
+}
+
+// MarkOutputUploaded records one output as uploaded; when every present
+// output is, the result becomes ready to report. It returns true then.
+func (s *State) MarkOutputUploaded(name, file string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Results {
+		r := &s.Results[i]
+		if r.Name != name {
+			continue
+		}
+		all := true
+		for j := range r.Outputs {
+			if r.Outputs[j].Name == file {
+				r.Outputs[j].Uploaded = true
+			}
+			if r.Outputs[j].Present && !r.Outputs[j].Uploaded {
+				all = false
+			}
+		}
+		if all {
+			r.ReadyToReport = 1
+		}
+		return all
+	}
+	return false
 }
 
 func (s *State) RemoveResult(name string) {
