@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeState is a minimal StateManager double for testing the engine without
@@ -20,10 +21,12 @@ type fakeState struct {
 	hostInfo HostInfoSnapshot
 	messages []string
 	pending  map[string]bool
+	names    map[string]string
+	rpc      map[string][2]int
 }
 
 func newFakeState(projects ...ProjectInfo) *fakeState {
-	return &fakeState{projects: projects, pending: map[string]bool{}}
+	return &fakeState{projects: projects, pending: map[string]bool{}, names: map[string]string{}, rpc: map[string][2]int{}}
 }
 
 func (f *fakeState) GetProjects() []ProjectInfo {
@@ -64,6 +67,18 @@ func (f *fakeState) SetProjectSchedPending(url string, pending bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pending[url] = pending
+}
+
+func (f *fakeState) SetProjectName(url, name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.names[url] = name
+}
+
+func (f *fakeState) SetProjectRPCState(url string, hostID, rpcSeqno int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rpc[url] = [2]int{hostID, rpcSeqno}
 }
 
 func (f *fakeState) Messages() []string {
@@ -388,5 +403,197 @@ func TestForceOneContactsAProjectNotYetTrackedByAPeriodicCycle(t *testing.T) {
 	msgs := fs.Messages()
 	if len(msgs) == 0 || !strings.Contains(msgs[0], "Contacted") {
 		t.Errorf("expected forceOne to contact the project and log it, got %v", msgs)
+	}
+}
+
+// strictScheduler behaves like the real BOINC scheduler CGI that rejected
+// every request Iris ever sent: it reads the request line by line, so a
+// document squeezed onto one line (or missing the final newline) is answered
+// with "no end tag", and a client that doesn't state its version in the
+// core_client_*_version fields is told it is 0.0.0. Both replies were seen
+// verbatim from Einstein@Home.
+func strictScheduler(t *testing.T, reply string, gotBody *string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Write([]byte(`<html></html>`)) // the master page
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		if gotBody != nil {
+			*gotBody = string(raw)
+		}
+		body := string(raw)
+		msg := ""
+		lines := strings.Split(body, "\n")
+		hasEnd := false
+		for i, l := range lines {
+			if strings.TrimSpace(l) == "</scheduler_request>" && i < len(lines)-1 {
+				hasEnd = true // the end tag must be on its own line, followed by a newline
+			}
+		}
+		switch {
+		case !hasEnd:
+			msg = "Error in request message: no end tag "
+		case !strings.Contains(body, "<core_client_major_version>8</core_client_major_version>"):
+			msg = "Need version 5.8.0 or higher of the BOINC client. You have 0.0.0."
+		}
+		w.Header().Set("Content-Type", "text/xml")
+		if msg != "" {
+			w.Write([]byte(`<scheduler_reply><request_delay>60</request_delay><message priority="low">` + msg + `</message></scheduler_reply>`))
+			return
+		}
+		w.Write([]byte(reply))
+	}))
+}
+
+// TestDoRPCSendsARequestARealSchedulerAccepts is the regression test for the
+// bug that meant no real project ever sent Iris any work: with the old
+// single-line, no-trailing-newline request, this strict scheduler (and the
+// real Einstein@Home) answers "Error in request message: no end tag".
+func TestDoRPCSendsARequestARealSchedulerAccepts(t *testing.T) {
+	var body string
+	srv := strictScheduler(t, `<scheduler_reply><request_delay>60</request_delay></scheduler_reply>`, &body)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "Strict"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	for _, m := range fs.Messages() {
+		if strings.Contains(m, "Error in request message") || strings.Contains(m, "Need version") {
+			t.Fatalf("the scheduler rejected Iris's request: %q\nrequest was:\n%s", m, body)
+		}
+	}
+	if lines := strings.Split(body, "\n"); lines[0] != "<scheduler_request>" || len(lines) < 12 {
+		t.Errorf("request must have one element per line (first line %q, %d lines), got:\n%s", lines[0], len(lines), body)
+	}
+	if !strings.HasSuffix(body, "</scheduler_request>\n") {
+		t.Errorf("request must end with a newline after the closing tag, got tail %q", body[max(0, len(body)-40):])
+	}
+}
+
+func TestDoRPCHonorsTheServersRequestDelay(t *testing.T) {
+	srv := strictScheduler(t, `<scheduler_reply><request_delay>3600</request_delay></scheduler_reply>`, nil)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "Slow"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	ps := &ProjectState{URL: srv.URL}
+	e.doRPC(ps)
+
+	if ps.MinRPCInterval != time.Hour {
+		t.Errorf("MinRPCInterval = %v, want 1h from the server's <request_delay>", ps.MinRPCInterval)
+	}
+}
+
+func TestDoRPCLearnsTheProjectNameFromTheReply(t *testing.T) {
+	srv := strictScheduler(t, `<scheduler_reply><project_name>Einstein@Home</project_name></scheduler_reply>`, nil)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: ""}) // attached with only a URL
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	if got := fs.names[srv.URL]; got != "Einstein@Home" {
+		t.Errorf("project name = %q, want the one the scheduler reported", got)
+	}
+}
+
+func TestDoRPCKeepsANameThePersonChose(t *testing.T) {
+	srv := strictScheduler(t, `<scheduler_reply><project_name>Einstein@Home</project_name></scheduler_reply>`, nil)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "My own name"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL, Name: "My own name"})
+
+	if _, set := fs.names[srv.URL]; set {
+		t.Error("a name the person chose must not be overwritten by the scheduler's")
+	}
+}
+
+func TestReplyMessagePriorityMarksErrorsEvenWhenTheServerCallsThemLow(t *testing.T) {
+	cases := map[string]int{
+		"Error in request message: no end tag ":             3,
+		"Invalid or missing account key.  To fix, detach":   3,
+		"Need version 5.8.0 or higher of the BOINC client.": 3,
+		"No work sent":                   1,
+		"Project has no tasks available": 1,
+	}
+	for text, want := range cases {
+		if got := replyMessagePriority(ReplyMessage{Priority: "low", Text: text}); got != want {
+			t.Errorf("priority(%q) = %d, want %d", text, got, want)
+		}
+	}
+	if got := replyMessagePriority(ReplyMessage{Priority: "high", Text: "anything"}); got != 3 {
+		t.Errorf("a high-priority message must rank 3, got %d", got)
+	}
+}
+
+// TestRequestUsesTheTagsARealSchedulerReads pins the request vocabulary to
+// what a real scheduler parses: platform_name (not "platform"), no bare
+// top-level resource_share (newer servers fail the whole request on it),
+// host_cpid inside host_info, and coprocs beside host_info rather than inside.
+func TestRequestUsesTheTagsARealSchedulerReads(t *testing.T) {
+	var body string
+	srv := strictScheduler(t, `<scheduler_reply></scheduler_reply>`, &body)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "Tags"})
+	fs.hostInfo = HostInfoSnapshot{Ncpus: 4, NvidiaCount: 1, NvidiaName: "GeForce RTX 5070 Ti"}
+	e := NewEngine(fs, fakeCache{}, EngineConfig{HostCPID: "abc123"})
+	e.doRPC(&ProjectState{URL: srv.URL})
+
+	for _, want := range []string{"<platform_name>", "<hostid>0</hostid>", "<rpc_seqno>0</rpc_seqno>", "<resource_share_fraction>1</resource_share_fraction>", "<host_cpid>abc123</host_cpid>", "<coproc_cuda>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("request is missing %s:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "<resource_share>") || strings.Contains(body, "<platform>") {
+		t.Errorf("request must not send the tags no scheduler reads (<resource_share>, <platform>):\n%s", body)
+	}
+	hostEnd := strings.Index(body, "</host_info>")
+	if c := strings.Index(body, "<coprocs>"); c < hostEnd {
+		t.Errorf("<coprocs> must come after </host_info>, not inside it:\n%s", body)
+	}
+}
+
+// TestHostIDIsStoredAndSentBack guards against registering a brand-new host
+// on the project's server at every single contact: the id the server assigns
+// in its first reply has to be remembered and included in the next request.
+func TestHostIDIsStoredAndSentBack(t *testing.T) {
+	var body string
+	srv := strictScheduler(t, `<scheduler_reply><hostid>4242</hostid></scheduler_reply>`, &body)
+	defer srv.Close()
+
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "Host"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	ps := &ProjectState{URL: srv.URL}
+
+	e.doRPC(ps) // first contact: hostid 0
+	if !strings.Contains(body, "<hostid>0</hostid>") {
+		t.Errorf("first contact must send hostid 0, got:\n%s", body)
+	}
+	if got := fs.rpc[srv.URL]; got != [2]int{4242, 1} {
+		t.Fatalf("stored (hostid, rpc_seqno) = %v, want [4242 1]", got)
+	}
+
+	e.doRPC(ps) // later contact: must carry the assigned id and a higher sequence number
+	if !strings.Contains(body, "<hostid>4242</hostid>") || !strings.Contains(body, "<rpc_seqno>1</rpc_seqno>") {
+		t.Errorf("second contact must send the stored hostid and rpc_seqno=1, got:\n%s", body)
+	}
+}
+
+func TestResourceShareFractionSplitsByShareWithTheBoincDefault(t *testing.T) {
+	ps := []ProjectInfo{{URL: "a", ResourceShare: 300}, {URL: "b"}, {URL: "c", ResourceShare: 100}}
+	if got := resourceShareFraction(ps, "a"); got != 300.0/500.0 {
+		t.Errorf("a = %v, want 0.6", got)
+	}
+	if got := resourceShareFraction(ps, "b"); got != 100.0/500.0 { // unset share counts as 100
+		t.Errorf("b = %v, want 0.2", got)
+	}
+	if got := resourceShareFraction(nil, "x"); got != 1 {
+		t.Errorf("no projects should give 1, got %v", got)
 	}
 }

@@ -303,6 +303,16 @@ Honest overview of what exists today.
   testing — reports welcome.)
 - **Scheduler discovery**: the real scheduler address is scraped from a project's master page (the
   actual BOINC protocol), not guessed from the master URL — verified live against Einstein@Home.
+- **Scheduler requests a real project accepts.** Up to and including v1.3.10 every request Iris sent
+  to a real BOINC scheduler was rejected as malformed (`Error in request message: no end tag` — the
+  request was one line of XML with no final newline, the client version was sent under the wrong tags,
+  and the platform under `platform` instead of `platform_name`), so no real project ever sent any work.
+  Found and fixed after a user's attached Einstein@Home and Amicable projects sat idle; now the request
+  is line-per-element, uses the tags the reference client uses, stores the `hostid` the server assigns
+  (so it does not register a new host at every contact), honors the server's `request_delay`, and learns
+  a project's name from its reply. Verified against the live Einstein@Home and Amicable schedulers —
+  with a deliberately invalid account key, so those tests only prove the request is now *accepted and
+  understood* (`Invalid or missing account key`), not that work was received.
 - Scheduler request/reply (with real work-fetch sizing, so a project is actually asked for work), file
   transfer with verification, credit/RAC and statistics, preferences, benchmark, hardware detection,
   GPU/CPU work areas with enforced limits.

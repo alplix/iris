@@ -40,6 +40,7 @@ type ProjectState struct {
 	TotalCredit    float64
 	TeamID         int
 	HostID         int
+	RPCSeqno       int
 	Config         ProjectConfig
 	// SchedulerURLs caches what DiscoverSchedulerURL found on the project's
 	// master page, so it is scraped only once per run rather than before
@@ -65,6 +66,11 @@ type StateManager interface {
 	UpdateProjectCredit(url string, userTotal, userExpavg, hostTotal, hostExpavg float64)
 	AddMessage(body, project string, pri int)
 	SetProjectSchedPending(url string, pending bool)
+	// SetProjectName gives a project its name if it has none yet.
+	SetProjectName(url, name string)
+	// SetProjectRPCState stores the host id the server assigned and the number
+	// of contacts made, so both are sent back next time.
+	SetProjectRPCState(url string, hostID, rpcSeqno int)
 	Save()
 }
 
@@ -105,6 +111,7 @@ type ProjectInfo struct {
 	ExpAvgCredit        float64
 	ResourceShare       float64
 	HostID              int
+	RPCSeqno            int
 	SuspendedViaGUI     int
 	DontRequestMoreWork int
 }
@@ -238,6 +245,8 @@ func (e *Engine) getOrCreateProject(info ProjectInfo) *ProjectState {
 		ps.Authenticator = info.Authenticator
 		ps.Name = info.Name
 		ps.TotalCredit = info.TotalCredit
+		ps.HostID = info.HostID
+		ps.RPCSeqno = info.RPCSeqno
 		return ps
 	}
 	ps := &ProjectState{
@@ -245,6 +254,8 @@ func (e *Engine) getOrCreateProject(info ProjectInfo) *ProjectState {
 		Authenticator:  info.Authenticator,
 		Name:           info.Name,
 		MinRPCInterval: e.cfg.MinRPCInterval,
+		HostID:         info.HostID,
+		RPCSeqno:       info.RPCSeqno,
 	}
 	e.projects[info.URL] = ps
 	return ps
@@ -323,19 +334,27 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	cli.SetSchedulerURL(e.schedulerURLFor(ps, cli))
 
 	hostInfo := e.state.GetHostInfo()
+	shareFraction := resourceShareFraction(e.state.GetProjects(), ps.URL)
 	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
 
 	req := &Request{
 		Authenticator: ps.Authenticator,
-		HostCPID:      e.cfg.HostCPID,
+		HostID:        ps.HostID,
+		RPCSeqno:      ps.RPCSeqno,
 		Platform:      Platform(),
 		VersionNum:    802,
 		Timestamp:     float64(time.Now().Unix()),
 		TeamID:        ps.TeamID,
 		TotalCredit:   ps.TotalCredit,
 		Joined:        1,
-		ResourceShare: 100,
+
+		ResourceShareFraction: shareFraction,
+		RRSFraction:           shareFraction,
+		PRRSFraction:          shareFraction,
+		// The reference client writes <coprocs> next to <host_info>, not inside it.
+		Coprocs: buildCoprocsXML(hostInfo),
 		HostInfo: &HostInfoXML{
+			HostCPID:  e.cfg.HostCPID,
 			OsName:    hostInfo.OSName,
 			OsVersion: hostInfo.OSVersion,
 			PVendor:   hostInfo.Vendor,
@@ -346,7 +365,6 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			DFree:     hostInfo.DFree,
 			DTotal:    hostInfo.DTotal,
 			ConnType:  3,
-			Coprocs:   buildCoprocsXML(hostInfo),
 		},
 		CoreClientVer:   product.UserAgent(),
 		WorkReqSeconds:  workReqSecs,
@@ -380,6 +398,14 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		return
 	}
 
+	// A reply came back: remember the host id the server assigned (without it
+	// every request would register a new host) and count this contact.
+	if reply.HostID > 0 {
+		ps.HostID = reply.HostID
+	}
+	ps.RPCSeqno++
+	e.state.SetProjectRPCState(ps.URL, ps.HostID, ps.RPCSeqno)
+
 	if reply.Error != "" {
 		log.Printf("[Scheduler] Server error from %s: %s", ps.URL, reply.Error)
 		e.state.AddMessage(reply.Error, ps.URL, 2)
@@ -400,11 +426,27 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	if reply.ServerTime > 0 {
 		ps.ServerTime = reply.ServerTime
 	}
-	if reply.Delay > 0 {
-		ps.MinRPCInterval = time.Duration(reply.Delay) * time.Second
+	if reply.RequestDelay > 0 {
+		// Honor the server's back-off (never poll faster than the engine's own
+		// floor, either): a project that says "come back in a day" means it.
+		d := time.Duration(reply.RequestDelay * float64(time.Second))
+		if d < e.cfg.MinRPCInterval {
+			d = e.cfg.MinRPCInterval
+		}
+		ps.MinRPCInterval = d
 	}
-	if reply.Message != "" {
-		e.state.AddMessage(reply.Message, ps.URL, 1)
+	haveMessage := false
+	for _, m := range reply.Messages {
+		if text := strings.TrimSpace(m.Text); text != "" {
+			haveMessage = true
+			log.Printf("[Scheduler] %s says: %s", ps.URL, text)
+			e.state.AddMessage(text, ps.URL, replyMessagePriority(m))
+		}
+	}
+	if reply.ProjectName != "" && strings.TrimSpace(ps.Name) == "" {
+		// A project attached without a name (only its URL) learns its real one here.
+		e.state.SetProjectName(ps.URL, reply.ProjectName)
+		ps.Name = reply.ProjectName
 	}
 
 	fileMap := make(map[string]FileInfoXML)
@@ -437,11 +479,11 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	log.Printf("[Scheduler] RPC done for %s, credit=%.1f, got %d tasks, reported %d, removed %d",
 		ps.URL, userTotal, len(reply.Results), len(reported), removed)
-	// The server's own reply.Message (already logged above) usually explains
+	// The server's own reply messages (already logged above) usually explains
 	// itself; a quiet, successful contact otherwise leaves no trace at all,
 	// making it impossible to tell "never tried" apart from "tried, nothing
 	// to do" — so a plain contact confirmation is always logged.
-	if reply.Message == "" {
+	if !haveMessage {
 		e.state.AddMessage(fmt.Sprintf("Contacted %s: %d new task(s)", ps.URL, len(reply.Results)), ps.URL, 1)
 	}
 }
@@ -545,6 +587,45 @@ func buildCoprocsXML(hi HostInfoSnapshot) *CoprocsXML {
 		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: hi.AtiName, HaveOpenCL: 1}
 	}
 	return c
+}
+
+// resourceShareFraction is this project's share of the total resource share
+// across every attached project (BOINC's default of 100 for one never set),
+// which is what a scheduler expects instead of a bare share number.
+func resourceShareFraction(projects []ProjectInfo, url string) float64 {
+	share := func(p ProjectInfo) float64 {
+		if p.ResourceShare <= 0 {
+			return 100
+		}
+		return p.ResourceShare
+	}
+	total, mine := 0.0, 0.0
+	for _, p := range projects {
+		total += share(p)
+		if p.URL == url {
+			mine = share(p)
+		}
+	}
+	if total <= 0 || mine <= 0 {
+		return 1
+	}
+	return mine / total
+}
+
+// replyMessagePriority ranks a scheduler's own message so an error is shown as
+// one. Real schedulers mark even "Error in request message" and "Invalid or
+// missing account key" as priority="low", so the text is checked as well.
+func replyMessagePriority(m ReplyMessage) int {
+	if strings.EqualFold(m.Priority, "high") {
+		return 3
+	}
+	t := strings.ToLower(m.Text)
+	for _, k := range []string{"error", "invalid", "need version", "missing", "not found", "fail", "unable", "cannot", "can't"} {
+		if strings.Contains(t, k) {
+			return 3
+		}
+	}
+	return 1
 }
 
 func detectGPUFromResult(rr ReplyResult) bool {
