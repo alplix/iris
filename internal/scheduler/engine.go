@@ -426,19 +426,20 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		// The reference client writes <coprocs> next to <host_info>, not inside it.
 		Coprocs: buildCoprocsXML(hostInfo, countGPUQueued(e.state.GetResults(), ps.URL)),
 		HostInfo: &HostInfoXML{
-			HostCPID:   e.cfg.HostCPID,
-			Timezone:   localTimezone(),
-			DomainName: e.hostName(),
-			OsName:     reportedOSName(hostInfo.OSName),
-			OsVersion:  hostInfo.OSVersion,
-			PVendor:    hostInfo.Vendor,
-			PModel:     hostInfo.Model,
-			PNcpus:     hostInfo.Ncpus,
-			PFlops:     hostInfo.PFlops,
-			MNbytes:    hostInfo.MNbytes,
-			DFree:      hostInfo.DFree,
-			DTotal:     hostInfo.DTotal,
-			ConnType:   3,
+			HostCPID:    e.cfg.HostCPID,
+			Timezone:    localTimezone(),
+			DomainName:  e.hostName(),
+			ProductName: reportedProductName,
+			OsName:      reportedOSName(hostInfo.OSName),
+			OsVersion:   hostInfo.OSVersion,
+			PVendor:     hostInfo.Vendor,
+			PModel:      hostInfo.Model,
+			PNcpus:      hostInfo.Ncpus,
+			PFlops:      hostInfo.PFlops,
+			MNbytes:     hostInfo.MNbytes,
+			DFree:       hostInfo.DFree,
+			DTotal:      hostInfo.DTotal,
+			ConnType:    3,
 		},
 		CoreClientVer:   product.UserAgent(),
 		WorkReqSeconds:  workReqSecs,
@@ -818,6 +819,9 @@ func localTimezone() int {
 	_, off := time.Now().Zone()
 	return off
 }
+
+// reportedProductName is what projects list under "Model".
+const reportedProductName = "athena.org.tr"
 
 // reportedOSName puts the client's identity in front of the operating system
 // so a project's host list says what is running there.
