@@ -699,3 +699,19 @@ func TestReportedOSAndHostName(t *testing.T) {
 		t.Error("an empty setting must fall back to the machine's own name")
 	}
 }
+
+func TestRequestCarriesTheProductName(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "P"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if !strings.Contains(body, "\n  <product_name>athena.org.tr</product_name>\n") {
+		t.Errorf("host_info should carry product_name on its own line:\n%s", body)
+	}
+}
