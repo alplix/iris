@@ -28,19 +28,45 @@ type Client struct {
 }
 
 type Request struct {
-	XMLName       xml.Name     `xml:"scheduler_request"`
-	Authenticator string       `xml:"authenticator"`
-	HostCPID      string       `xml:"host_cpid"`
-	Platform      string       `xml:"platform"`
-	VersionNum    int          `xml:"version_num"`
-	Timestamp     float64      `xml:"timestamp"`
-	TeamID        int          `xml:"teamid"`
-	TotalCredit   float64      `xml:"total_credit"`
-	Joined        int          `xml:"joined"`
-	ResourceShare float64      `xml:"resource_share"`
-	HostInfo      *HostInfoXML `xml:"host_info"`
-	Results       []ResultXML  `xml:"result"`
-	CoreClientVer string       `xml:"core_client_version"`
+	XMLName       xml.Name `xml:"scheduler_request"`
+	Authenticator string   `xml:"authenticator"`
+	// HostID is the id the project's server gave this computer (0 on the very
+	// first contact) and RPCSeqno counts contacts. Both must be sent back:
+	// without the host id every request registers a brand-new host on the
+	// project's server.
+	HostID   int `xml:"hostid"`
+	RPCSeqno int `xml:"rpc_seqno"`
+	// Platform is sent as platform_name — the tag a scheduler actually reads.
+	// It used to be "platform", which no scheduler knows, so the server never
+	// learned which platform to pick application versions for.
+	Platform    string  `xml:"platform_name"`
+	VersionNum  int     `xml:"version_num"`
+	Timestamp   float64 `xml:"timestamp"`
+	TeamID      int     `xml:"teamid"`
+	TotalCredit float64 `xml:"total_credit"`
+	Joined      int     `xml:"joined"`
+	// This project's share of the total resource share, as the reference
+	// client sends it. A bare top-level <resource_share> (what was sent
+	// before) is not a scheduler_request tag, and newer scheduler versions
+	// fail the entire request with "no end tag" because of it.
+	ResourceShareFraction float64      `xml:"resource_share_fraction"`
+	RRSFraction           float64      `xml:"rrs_fraction"`
+	PRRSFraction          float64      `xml:"prrs_fraction"`
+	HostInfo              *HostInfoXML `xml:"host_info"`
+	Results               []ResultXML  `xml:"result"`
+	CoreClientVer         string       `xml:"core_client_version"`
+	// Coprocs lists the host's GPUs. The reference client writes it at the top
+	// level of the request, next to host_info (not inside it).
+	Coprocs *CoprocsXML `xml:"coprocs"`
+
+	// A real BOINC scheduler reads the client's version from these three
+	// fields (not from core_client_version) and rejects anything older than
+	// 5.8.0 with "Need version 5.8.0 or higher ... You have 0.0.0" — which is
+	// what every request answered before these were sent. SendRequest fills
+	// them in from VersionNum.
+	CoreClientMajor   int `xml:"core_client_major_version"`
+	CoreClientMinor   int `xml:"core_client_minor_version"`
+	CoreClientRelease int `xml:"core_client_release"`
 
 	// Work-fetch: without these a scheduler has no idea Iris wants any work
 	// at all and many will send none. WorkFetchRequest computes them from
@@ -52,18 +78,18 @@ type Request struct {
 }
 
 type HostInfoXML struct {
-	XMLName   xml.Name    `xml:"host_info"`
-	OsName    string      `xml:"os_name"`
-	OsVersion string      `xml:"os_version"`
-	PVendor   string      `xml:"p_vendor"`
-	PModel    string      `xml:"p_model"`
-	PNcpus    int         `xml:"p_ncpus"`
-	PFlops    float64     `xml:"p_fpops"`
-	MNbytes   float64     `xml:"m_nbytes"`
-	DFree     float64     `xml:"d_free"`
-	DTotal    float64     `xml:"d_total"`
-	ConnType  int         `xml:"conn_type"`
-	Coprocs   *CoprocsXML `xml:"coprocs"`
+	XMLName   xml.Name `xml:"host_info"`
+	HostCPID  string   `xml:"host_cpid"`
+	OsName    string   `xml:"os_name"`
+	OsVersion string   `xml:"os_version"`
+	PVendor   string   `xml:"p_vendor"`
+	PModel    string   `xml:"p_model"`
+	PNcpus    int      `xml:"p_ncpus"`
+	PFlops    float64  `xml:"p_fpops"`
+	MNbytes   float64  `xml:"m_nbytes"`
+	DFree     float64  `xml:"d_free"`
+	DTotal    float64  `xml:"d_total"`
+	ConnType  int      `xml:"conn_type"`
 }
 
 // CoprocsXML is a host_info's GPU section, exactly as the reference client
@@ -130,10 +156,22 @@ type Reply struct {
 	HostTotalCredit  float64 `xml:"host_total_credit"`
 	HostExpavgCredit float64 `xml:"host_expavg_credit"`
 
-	ResourceShare float64         `xml:"resource_share"`
-	Message       string          `xml:"message"`
-	ServerTime    float64         `xml:"server_time"`
-	Delay         int             `xml:"delay"`
+	ResourceShare float64 `xml:"resource_share"`
+	// Messages are the server's own explanations ("no work available", "invalid
+	// account key", ...). A reply can carry several.
+	Messages   []ReplyMessage `xml:"message"`
+	ServerTime float64        `xml:"server_time"`
+	// RequestDelay is how many seconds the server wants us to wait before the
+	// next request (BOINC's <request_delay>). It used to be read from a tag
+	// named "delay", which no scheduler sends, so the server's back-off was
+	// never honored.
+	RequestDelay float64 `xml:"request_delay"`
+	// HostID is the id the server assigned this computer; it has to be stored
+	// and sent back with every later request.
+	HostID int `xml:"hostid"`
+	// ProjectName is the project's own name, which is how a project attached
+	// without one (or with only its URL) gets a real name.
+	ProjectName   string          `xml:"project_name"`
 	FileInfos     []FileInfoXML   `xml:"file_info"`
 	FileTransfers []ReplyFileXfer `xml:"file_transfer"`
 	Results       []ReplyResult   `xml:"result"`
@@ -165,6 +203,12 @@ type AppFileRefXML struct {
 	XMLName     xml.Name  `xml:"file_ref"`
 	FileName    string    `xml:"file_name"`
 	MainProgram *struct{} `xml:"main_program"`
+}
+
+// ReplyMessage is one <message priority="...">text</message> from a scheduler.
+type ReplyMessage struct {
+	Priority string `xml:"priority,attr"`
+	Text     string `xml:",chardata"`
 }
 
 type ReplyFileXfer struct {
@@ -313,6 +357,21 @@ func (c *Client) GetFileURL(filename string) string {
 	return c.baseURL() + "/file.php?name=" + filename
 }
 
+// marshalRequest renders a scheduler request the way a real BOINC scheduler
+// can parse it. Those servers read the request line by line, so a normal
+// compact encoding/xml document (everything on one line, no final newline)
+// is answered with "Error in request message: no end tag" and no work — which
+// is exactly what happened to every request until this was found by sending
+// the same request to a live project in several layouts: one tag per line
+// plus a newline after </scheduler_request> is what gets it accepted.
+func marshalRequest(req *Request) ([]byte, error) {
+	data, err := xml.MarshalIndent(req, "", " ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
 func (c *Client) SendRequest(req *Request) (*Reply, error) {
 	if c.authToken != "" {
 		req.Authenticator = c.authToken
@@ -323,8 +382,13 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 	if req.Timestamp == 0 {
 		req.Timestamp = float64(time.Now().Unix())
 	}
+	if req.CoreClientMajor == 0 && req.VersionNum > 0 {
+		req.CoreClientMajor = req.VersionNum / 100
+		req.CoreClientMinor = req.VersionNum / 10 % 10
+		req.CoreClientRelease = req.VersionNum % 10
+	}
 
-	data, err := xml.Marshal(req)
+	data, err := marshalRequest(req)
 	if err != nil {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}

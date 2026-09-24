@@ -677,6 +677,8 @@ func (a *stateAdapter) GetProjects() []scheduler.ProjectInfo {
 			Authenticator:       p.Authenticator,
 			TotalCredit:         p.UserTotalCredit,
 			ResourceShare:       p.ResourceShare,
+			HostID:              p.HostID,
+			RPCSeqno:            p.RPCSeqno,
 			SuspendedViaGUI:     p.SuspendedViaGUI,
 			DontRequestMoreWork: p.DontRequestMoreWork,
 		})
@@ -757,6 +759,10 @@ func (a *stateAdapter) UpdateStats(ok bool, cpu, gpu, credit float64) {
 func (a *stateAdapter) AddMessage(body, project string, pri int) { a.s.AddMessage(body, project, pri) }
 func (a *stateAdapter) SetProjectSchedPending(url string, pending bool) {
 	a.s.SetProjectSchedPending(url, pending)
+}
+func (a *stateAdapter) SetProjectName(url, name string) { a.s.SetProjectName(url, name) }
+func (a *stateAdapter) SetProjectRPCState(url string, hostID, rpcSeqno int) {
+	a.s.SetProjectRPCState(url, hostID, rpcSeqno)
 }
 func (a *stateAdapter) Save() { a.s.Save() }
 

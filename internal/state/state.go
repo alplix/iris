@@ -120,6 +120,11 @@ type Project struct {
 	Ended               int     `xml:"ended"`
 	LastRPCTime         float64 `xml:"last_rpc_time"`
 	Authenticator       string  `xml:"authenticator"`
+	// HostID is the id the project's server assigned this computer and
+	// RPCSeqno how many scheduler contacts were made; both go back to the
+	// server on every request.
+	HostID   int `xml:"hostid"`
+	RPCSeqno int `xml:"rpc_seqno"`
 }
 
 type Result struct {
@@ -391,6 +396,34 @@ func (s *State) SetProjectSchedPending(url string, pending bool) {
 	for i := range s.Projects {
 		if s.Projects[i].MasterURL == url {
 			s.Projects[i].SchedRPCPending = val
+			return
+		}
+	}
+}
+
+// SetProjectRPCState records the host id a project's server assigned this
+// computer and the count of scheduler contacts.
+func (s *State) SetProjectRPCState(url string, hostID, rpcSeqno int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url {
+			s.Projects[i].HostID = hostID
+			s.Projects[i].RPCSeqno = rpcSeqno
+			return
+		}
+	}
+}
+
+// SetProjectName gives a project its name, but only if it has none: a
+// project attached with just its URL learns its real name from the
+// scheduler's first reply, and a name the person chose is never overwritten.
+func (s *State) SetProjectName(url, name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url && strings.TrimSpace(s.Projects[i].Name) == "" {
+			s.Projects[i].Name = name
 			return
 		}
 	}
