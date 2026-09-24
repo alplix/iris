@@ -175,6 +175,9 @@ type FileInfo struct {
 	// OpenName is the logical name the application opens the file by; the
 	// downloaded file is also made available under it in the task's slot.
 	OpenName string `xml:"open_name,omitempty"`
+	// LocalPath, when set, is where the file already is (the person's own
+	// application named in app_info.xml); it is copied, never downloaded.
+	LocalPath string `xml:"local_path,omitempty"`
 }
 
 // OutputFile is one file a task produces. Name is the physical name the
@@ -525,6 +528,18 @@ func (s *State) SetProjectNoMoreWork(url string, on bool) {
 			} else {
 				s.Projects[i].DontRequestMoreWork = 0
 			}
+			return
+		}
+	}
+}
+
+// SetProjectDir records a project's folder (after it was renamed).
+func (s *State) SetProjectDir(url, dir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url {
+			s.Projects[i].ProjectDir = dir
 			return
 		}
 	}

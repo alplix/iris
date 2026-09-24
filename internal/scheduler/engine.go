@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alplix/iris/internal/product"
+	"github.com/alplix/iris/internal/project"
 )
 
 type Engine struct {
@@ -130,6 +131,8 @@ type ProjectInfo struct {
 	RPCSeqno            int
 	SuspendedViaGUI     int
 	DontRequestMoreWork int
+	// Dir is the project's folder, where a person's app_info.xml lives.
+	Dir string
 }
 
 type ResultInfo struct {
@@ -184,6 +187,9 @@ type FileInfo struct {
 	MainProgram bool
 	// OpenName is the logical name the application opens the file by.
 	OpenName string
+	// LocalPath is set for a file that is already on disk (an application
+	// named in app_info.xml) and must be copied rather than downloaded.
+	LocalPath string
 }
 
 func NewEngine(state StateManager, cache CacheManager, cfg EngineConfig) *Engine {
@@ -411,7 +417,11 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
 
 	gpuQueued := countGPUQueued(e.state.GetResults(), ps.URL)
+	projDir := ""
 	for _, p := range e.state.GetProjects() {
+		if p.URL == ps.URL {
+			projDir = p.Dir
+		}
 		if p.URL == ps.URL && p.DontRequestMoreWork != 0 {
 			// Report only: ask for no work of any kind.
 			workReqSecs, cpuReqSecs, cpuReqInstances = 0, 0, 0
@@ -455,6 +465,17 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		WorkReqSeconds:  workReqSecs,
 		CPUReqSecs:      cpuReqSecs,
 		CPUReqInstances: cpuReqInstances,
+	}
+
+	// The person's own applications (app_info.xml in the project's folder)
+	// replace the project's: say so, and list them.
+	ai, aiErr := project.LoadAppInfo(projDir)
+	if aiErr != nil {
+		e.state.AddMessage("Ignoring the app_info.xml of "+ps.URL+": "+aiErr.Error(), ps.URL, 3)
+	}
+	if ai != nil {
+		req.Platform = "anonymous"
+		req.AppVersions = clientAppVersions(ai, hostInfo.PFlops)
 	}
 
 	var reportedNow []ResultInfo
@@ -559,7 +580,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			// A resent copy of a task we already hold must not overwrite it.
 			continue
 		}
-		e.handleWork(ps, rr, fileMap, wuMap, reply.AppVersions)
+		e.handleWork(ps, rr, fileMap, wuMap, reply.AppVersions, ai, projDir)
 	}
 
 	// Only results the server acknowledged are forgotten; anything else is
@@ -608,7 +629,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	}
 }
 
-func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML, wuMap map[string]WorkunitXML, appVersions []AppVersionXML) {
+func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string]FileInfoXML, wuMap map[string]WorkunitXML, appVersions []AppVersionXML, ai *project.AppInfo, projDir string) {
 	log.Printf("[Scheduler] Work: %s (wu=%s, prio=%.2f, plan=%s)", rr.Name, rr.WuName, rr.Priority, rr.PlanClass)
 	isGPU := detectGPUFromResult(rr)
 	wu, haveWU := wuMap[rr.WuName]
@@ -659,7 +680,23 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 	if versionNum == 0 {
 		versionNum = rr.VersionNum
 	}
-	if av, ok := matchAppVersion(appVersions, rr, appName); ok {
+	extraCmd := ""
+	if ai != nil {
+		// Anonymous platform: the application is the person's own, sitting
+		// in the project's folder, not something the project sends.
+		if v, ok := ai.Find(appName, versionNum, rr.PlanClass); ok {
+			appName, planClass, platform = v.AppName, v.PlanClass, "anonymous"
+			extraCmd = strings.TrimSpace(v.CmdLine)
+			isGPU = isGPU || v.IsGPU()
+			for _, ref := range v.FileRefs {
+				files = append(files, FileInfo{Name: ref.FileName, OpenName: ref.OpenName, MainProgram: ref.MainProgram != nil,
+					LocalPath: filepath.Join(projDir, ref.FileName)})
+			}
+			log.Printf("[Scheduler] %s uses your own %s v%d from app_info.xml", rr.Name, v.AppName, v.VersionNum)
+		} else {
+			e.state.AddMessage(fmt.Sprintf("The project sent %s for %q version %d, which your app_info.xml does not describe", rr.Name, appName, versionNum), ps.URL, 3)
+		}
+	} else if av, ok := matchAppVersion(appVersions, rr, appName); ok {
 		appName = av.AppName
 		if av.Platform != "" {
 			platform = av.Platform
@@ -690,6 +727,9 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 	cmdLine := rr.CmdLine
 	if cmdLine == "" && haveWU {
 		cmdLine = wu.CmdLine
+	}
+	if extraCmd != "" {
+		cmdLine = strings.TrimSpace(extraCmd + " " + cmdLine)
 	}
 	result := ResultInfo{
 		Name:          rr.Name,
@@ -828,6 +868,27 @@ func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 func localTimezone() int {
 	_, off := time.Now().Zone()
 	return off
+}
+
+// clientAppVersions turns app_info.xml into the list sent to the project.
+func clientAppVersions(ai *project.AppInfo, hostFlops float64) *ClientAppVersionsXML {
+	out := &ClientAppVersionsXML{}
+	for _, v := range ai.Versions {
+		cpus := v.AvgNCPUs
+		if cpus <= 0 {
+			cpus = 1
+		}
+		flops := v.Flops
+		if flops <= 0 {
+			flops = hostFlops * cpus
+		}
+		cv := ClientAppVersionXML{AppName: v.AppName, VersionNum: v.VersionNum, Platform: "anonymous", PlanClass: v.PlanClass, AvgNCPUs: cpus, Flops: flops}
+		if v.Coproc != nil && v.Coproc.Count > 0 {
+			cv.Coproc = &ClientCoprocXML{Type: v.Coproc.Type, Count: v.Coproc.Count}
+		}
+		out.Versions = append(out.Versions, cv)
+	}
+	return out
 }
 
 // reportedProductName is what projects list under "Model".

@@ -29,19 +29,14 @@ type ProjectDir struct {
 }
 
 func NewDir(dataDir, projectURL string) *ProjectDir {
-	return &ProjectDir{base: filepath.Join(dataDir, "projects", urlHash(projectURL))}
+	return &ProjectDir{base: filepath.Join(dataDir, "projects", DirName(projectURL))}
 }
 
+// Init creates the project's folder. It stays otherwise empty: like the
+// reference client's, it holds account.xml, the files the project sends, and
+// whatever the person adds (app_info.xml and the application files it names).
 func (pd *ProjectDir) Init() error {
-	if err := os.MkdirAll(pd.base, 0o755); err != nil {
-		return err
-	}
-	for _, d := range []string{"slots", "apps", "templates", "download", "upload"} {
-		if err := os.MkdirAll(filepath.Join(pd.base, d), 0o755); err != nil {
-			return err
-		}
-	}
-	return nil
+	return os.MkdirAll(pd.base, 0o755)
 }
 
 func (pd *ProjectDir) SaveAccount(acct *Account) error {

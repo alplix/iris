@@ -3,6 +3,7 @@ package worker
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -56,5 +57,24 @@ func TestLinkOpenNameMakesTheLogicalNameReadable(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(slot), "escape")); err == nil {
 		t.Error("an open_name with a path must never be written outside the slot")
+	}
+}
+
+func TestOwnApplicationIsCopiedFromTheProjectFolder(t *testing.T) {
+	proj, slot := t.TempDir(), t.TempDir()
+	os.WriteFile(filepath.Join(proj, "myapp.exe"), []byte("binary"), 0o644)
+	e := NewEngine(&fakeState{touched: map[string]bool{}}, fakeCache{}, nil, nil, nil, Config{MaxConcurrent: 1})
+	r := ResultSnapshot{Name: "t", Slot: slot, Files: []FileRef{{Name: "myapp.exe", OpenName: "run", MainProgram: true, LocalPath: filepath.Join(proj, "myapp.exe")}}}
+	if err := e.downloadFiles(r); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"myapp.exe", "run"} {
+		if b, err := os.ReadFile(filepath.Join(slot, n)); err != nil || string(b) != "binary" {
+			t.Errorf("%s not in the slot: %q %v", n, b, err)
+		}
+	}
+	r.Files[0].LocalPath = filepath.Join(proj, "missing.exe")
+	if err := e.downloadFiles(r); err == nil || !strings.Contains(err.Error(), "app_info.xml") {
+		t.Errorf("a file named in app_info.xml but absent must be explained, got %v", err)
 	}
 }
