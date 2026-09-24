@@ -517,7 +517,7 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 		req.Authenticator = c.authToken
 	}
 	if req.ClientBrand == "" {
-		req.ClientBrand = product.Name
+		req.ClientBrand = product.Name + " " + product.Version
 	}
 	if req.CoreClientVer == "" {
 		req.CoreClientVer = product.UserAgent()

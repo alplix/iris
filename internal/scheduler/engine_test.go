@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/alplix/iris/internal/product"
 )
 
 // fakeState is a minimal StateManager double for testing the engine without
@@ -676,7 +678,7 @@ func TestRequestNamesTheBrand(t *testing.T) {
 	if _, err := c.SendRequest(&Request{Authenticator: "x", Platform: "p", VersionNum: 802}); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "\n <client_brand>Iris</client_brand>\n") {
+	if !strings.Contains(body, "\n <client_brand>"+product.Name+" "+product.Version+"</client_brand>\n") {
 		t.Errorf("request should name the client brand on its own line:\n%s", body)
 	}
 }
