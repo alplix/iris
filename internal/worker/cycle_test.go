@@ -30,6 +30,8 @@ func (f *fakeState) RecordTaskDay(url string, ok bool, cpuTime float64) {}
 func (f *fakeState) AddMessage(body, project string, pri int)           {}
 func (f *fakeState) Save()                                              {}
 func (f *fakeState) IsSuspended(name string) bool                       { return false }
+func (f *fakeState) SetOutputs(name string, outs []OutputRef)           {}
+func (f *fakeState) MarkOutputUploaded(name, file string) bool          { return true }
 func (f *fakeState) started(name string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()

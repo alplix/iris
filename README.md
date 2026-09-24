@@ -21,62 +21,15 @@ machine in your fleet — local and remote — from one window.
 
 > **Status — please read.** Iris is young. The manager is complete, and the client's plumbing
 > (scheduler requests, file transfers, GUI RPC, credit and statistics, preferences, hardware
-> detection) is implemented and tested. It can now download and *run* a project's **real** application,
-> including on a GPU (an experimental, off-by-default setting — see below), but **it cannot yet return
-> the result**: a finished task's real output files are not uploaded to the project, so a real
-> project's work is computed but not accepted or credited. It also has no sandbox and no real GPU
-> compute benchmark, and none of this has been run end-to-end against a live project's science
-> application yet. See [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris
-> is a manager for your machines and a foundation for the client, not a drop-in replacement for the
-> BOINC client — please don't point it at real projects expecting credit.
-
-## Contents
-
-[Screenshots](#screenshots) · [Features](#features) · [Separate GPU and CPU work](#separate-gpu-and-cpu-work) ·
-[AI Assistant](#ai-assistant) ·
-[Running next to BOINC](#running-next-to-boinc) · [Platforms](#platforms) · [Install](#install) ·
-[Getting started](#getting-started) · [Configuration](#configuration) ·
-[Status and roadmap](#status-and-roadmap) · [Building](#building-from-source) ·
-[Architecture](#architecture) · [License](#license)
-
-## Screenshots
-
-Screenshots are taken from the real application, using simulated servers plus the local client of
-the machine they were captured on.
-
-| | |
-|---|---|
-| ![Tasks](docs/screenshots/tasks.png) **Tasks** — progress, elapsed time, ETA, deadlines, resources; pause, resume and abort per task | ![Projects](docs/screenshots/projects.png) **Projects** — credit and RAC per host, suspend, update, allow/stop new work, detach |
-| ![Add project](docs/screenshots/add-project-selected.png) **Add project** — pick from the catalog; the project's server is checked live | ![Hardware](docs/screenshots/settings-hardware.png) **Hardware** — CPU, cores, speed, RAM, disk and every GPU with its real VRAM |
-| ![Statistics](docs/screenshots/stats.png) **Statistics** — credit history per project, transfer history, disk use | ![Transfers](docs/screenshots/transfers.png) **Transfers** — live progress, retry and abort |
-| ![Light theme](docs/screenshots/dashboard-light.png) **Light theme** | ![Turkish](docs/screenshots/dashboard-tr.png) **Nine languages** — here Turkish, picked from the system language |
-
-More: [servers](docs/screenshots/hosts.png), [messages](docs/screenshots/messages.png),
-[settings](docs/screenshots/settings.png), [the empty catalog dialog](docs/screenshots/add-project.png),
-[the catalog in Turkish](docs/screenshots/add-project-selected-tr.png).
-
-## Features
-
-### Manager
-
-| Area | What you can do |
-|---|---|
-| **Fleet dashboard** | Live totals (running / paused / queued), RAC and credit, per-host activity, recent client messages |
-| **Tasks** | Progress, elapsed/CPU time, ETA, deadlines, CPU/GPU resource; pause / resume / abort; filters and search across tasks, projects and servers |
-| **Projects** | Attach, detach, suspend/resume, update, allow / stop new work; account lookup by e-mail + password |
-| **Project catalog** | Every project on BOINC's official list plus a few well-known others, searchable, filterable by science area, with a badge showing whether the project has applications for *the server you are attaching to*. Choosing one asks the project's server (`get_project_config.php`, the call the BOINC manager makes) whether it is reachable, whether new accounts can be created from a client, and which platforms it supports. Website and *Create account* links open in your browser |
-| **Transfers** | Live upload/download progress with retry and abort |
-| **Event log** | Every scheduler contact, the project's own answer (e.g. "Invalid or missing account key"), transfers and errors across all servers, newest first and readable in full — filter by severity or project, search, copy for a bug report; each project card also shows its last event |
-| **Statistics** | Per-project credit-history charts, transfer history, per-project disk use |
-| **Preferences** | Global preference overrides on the client, per-host and **fleet-wide** run/network modes, CPU benchmark |
-| **Hardware** | OS, CPU, cores, speed, RAM, disk, and every GPU with its VRAM per host |
-| **AI Assistant** | Optional, off by default. Chat in your own language to ask about the fleet or tell it what to do; see [AI Assistant](#ai-assistant) below |
-| **Notifications** | Desktop alerts for approaching deadlines, task errors and offline hosts; tray menu (Windows, Linux) with refresh / hide / show / quit |
-| **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — every string translated; follows the system language and can be changed in Settings; the tray menu and notifications follow it |
-| **Themes** | Light or dark, in six colour themes (Violet, Ocean, Emerald, Rose, Amber, Graphite) — pick one in Settings |
-| **Local client** | The bundled `irisd` is detected, added as *Local Iris* and started for you (unless you stopped it) |
-
-### Client (`irisd`)
+> detection) is implemented and tested. The client now covers the whole life of a task: it fetches
+> work, downloads the application and inputs, **runs the project's real application** (on by default,
+> unsandboxed — see below), **uploads the output files with the project's signed certificate and reports
+> the result**. That whole path is tested end to end against a project double that follows BOINC's real
+> wire formats (checked against BOINC's source), **but it has not yet been run against a live
+> project's science application**, so whether a given project validates and credits the result is still
+> unconfirmed. There is also no sandbox and no real GPU compute benchmark. See
+> [Status and roadmap](#status-and-roadmap) for the honest list. Iris is in a test phase: try it, and
+> tell us what a real project does with it.
 
 - **Scheduler protocol**: builds scheduler requests with host information, reads the reply, records
   assigned results, reports finished ones, writes the project's credit and RAC back into its state
@@ -287,7 +240,7 @@ can be entered by address.
 | `allow_remote_gui_rpc` | `cc_config.xml` | `0` = listen on `127.0.0.1` only |
 | `gpu_cache` block | `cc_config.xml` | [Separate GPU and CPU work](#separate-gpu-and-cpu-work) |
 | `max_ncpus`, `max_ncpus_pct` | Settings → Edit Global Prefs | How many tasks may run at once (applied live) |
-| `real_apps_enabled` | Settings → Edit Global Prefs | Experimental, unsandboxed real application execution — see [Status and roadmap](#status-and-roadmap); off by default |
+| `real_apps_enabled` | Settings → Edit Global Prefs | Unsandboxed real application execution — see [Status and roadmap](#status-and-roadmap); on by default, `0` turns it off |
 
 ## Status and roadmap
 
@@ -324,19 +277,29 @@ Honest overview of what exists today.
   project, so in practice every project is equally weighted today.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
-- **Running real BOINC applications (experimental, off by default).** A scheduler reply's
-  `<app_version>` entries are parsed and matched to each task, the real executable they name is
-  downloaded (and given the execute bit on Linux/macOS) instead of only the old `app`/`main` stub
-  names, and a real `init_data.xml` is written into the slot before launch. Suspend/resume from the
-  UI reaches an already-running task at the OS level (`SIGSTOP`/`SIGCONT`, or the Windows
+- **Running real BOINC applications (unsandboxed, on by default).** A scheduler reply's
+  `<workunit>` (input files, command line) and `<app_version>` entries are parsed and matched to each
+  task, the real executable they name is downloaded (and given the execute bit on Linux/macOS), every
+  file is also made available under the logical name (`open_name`) the application opens it by, and a
+  real `init_data.xml` is written into the slot before launch. Suspend/resume from the UI reaches an
+  already-running task at the OS level (`SIGSTOP`/`SIGCONT`, or the Windows
   `NtSuspendProcess`/`NtResumeProcess` equivalent — each covered by a test that pauses and resumes a
-  real, running process on its own OS). This is deliberately
-  **not sandboxed**: a downloaded project binary runs with Iris's own privileges, the same trust
-  model as the reference BOINC client, and there is no shared-memory channel to the app (so an app
-  falls back to the BOINC API's own "standalone" behavior rather than getting live checkpoint/suspend
-  callbacks through it). It is off by default; turn it on per host from Settings → a host's Global
-  Preferences, where the risk is stated next to the switch. It stops at *computing* — returning the
-  result to the project is not implemented (see the first item under "Not implemented yet").
+  real, running process on its own OS). This is deliberately **not sandboxed**: a downloaded project
+  binary runs with Iris's own privileges, the same trust model as the reference BOINC client, and there
+  is no shared-memory channel to the app (so an app falls back to the BOINC API's own "standalone"
+  behavior rather than getting live checkpoint/suspend callbacks through it). It can be switched off
+  per host from Settings → a host's Global Preferences, where the risk is stated next to the switch. A
+  task the client was interrupted in is queued again on the next start.
+- **Returning results.** When a task exits cleanly, the output files its result declares are checked
+  (missing or oversized ones fail the task with BOINC's own error numbers instead of pretending it
+  succeeded) and uploaded with the same request the reference client makes: a `get_file_size` query
+  so an interrupted upload resumes, then a `file_upload` carrying the project's signed certificate and
+  the MD5, retried with a growing pause and across every listed upload address. Only after every
+  output is uploaded is the result reported — with its final times, exit status, stderr and each output's
+  `file_info` — and it is kept until the server's `result_ack` confirms it (a lost reply reports it
+  again; a restart no longer throws finished work away). Covered by a test that runs the real
+  scheduler and worker engines against a project double whose upload handler checks the certificate,
+  size and MD5 as the real one does, and whose scheduler rejects a malformed report.
 - **Requesting GPU work.** A detected NVIDIA or AMD GPU is now advertised in the scheduler request
   (`<coprocs>`, matching the reference client's own `lib/coproc.cpp` layout), so projects can actually
   offer GPU app_versions instead of never sending any. Two honest gaps remain, both because Iris has
@@ -344,8 +307,8 @@ Honest overview of what exists today.
   unmeasured (0) rather than fabricated, so a project sizes GPU work using its own default estimate for
   the plan class instead of Iris's; and device selection always assumes a single GPU at index 0
   (`gpu_device_num` in `init_data.xml`, plus `CUDA_VISIBLE_DEVICES`/`GPU_DEVICE_ORDINAL`), so a
-  multi-GPU host's extra devices sit idle. Covered by real application execution's same experimental,
-  off-by-default toggle above — GPU tasks are only ever downloaded and run once that's on.
+  multi-GPU host's extra devices sit idle. Covered by real application execution's same
+  toggle above — GPU tasks are only ever downloaded and run while that is on.
 - **A macOS menu bar tray icon.** `getlantern/systray` (used on Windows/Linux) and Wails both register
   their own Cocoa `NSApplicationDelegate` and crash if linked into the same binary, so macOS shipped
   with no tray at all until now. Fixed with a small native `NSStatusBar`/`NSStatusItem` package
@@ -356,11 +319,9 @@ Honest overview of what exists today.
 
 **Not implemented yet**
 
-- **Returning a real task's result — the largest remaining gap.** Only `stdout.txt`, `stderr.txt` and
-  `fraction_done.txt` are uploaded when a task finishes. The output files a project's result template
-  declares are not uploaded with the project's upload certificates, and the completed-result report
-  carries no output `file_info`, so a real project would not accept the result (no validation, no
-  credit). Real application execution (above) therefore only gets as far as computing.
+- **Confirmation against a live project.** Everything above is verified against BOINC's published
+  source and a strict project double, not against a real project's server and science application.
+  Anything a real server does that the source does not show (validation rules, quirks) is untested.
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.

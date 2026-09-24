@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/alplix/iris/internal/product"
 	"github.com/alplix/iris/internal/scheduler"
 	"github.com/alplix/iris/internal/state"
 	"github.com/alplix/iris/internal/worker"
@@ -139,6 +140,17 @@ func (d *downloaderAdapter) DownloadFile(projectURL, filename, destPath string) 
 func (d *downloaderAdapter) DownloadFileByURL(rawURL, destPath string) error {
 	return d.xfers.run(filepath.Base(destPath), rawURL, false, func(ctx context.Context, p scheduler.ProgressFunc) error {
 		return scheduler.DownloadFileByURLCtx(ctx, rawURL, destPath, p)
+	})
+}
+
+// UploadResultFile uploads a task output with the project's signed
+// certificate, shown in the transfer list like any other transfer.
+func (d *downloaderAdapter) UploadResultFile(projectURL string, o worker.OutputRef, path string) error {
+	name := o.Name
+	return d.xfers.run(name, projectURL, true, func(ctx context.Context, p scheduler.ProgressFunc) error {
+		return scheduler.UploadResultFile(ctx, scheduler.ResultUpload{
+			Name: o.Name, Path: path, URLs: o.URLs, MaxNBytes: o.MaxNBytes, Signature: o.Signature,
+		}, product.Version, p)
 	})
 }
 

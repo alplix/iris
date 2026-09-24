@@ -405,7 +405,7 @@ func init() {
 		"ui.prefsHelp":        "Ein key=value pro Zeile. Ein leerer Wert löscht eine Einstellung. Änderungen gelten für den gesamten Client.",
 		"ui.rac":              "RAC",
 		"ui.realAppsToggle":   "Echte Projekt-Anwendungen ausführen (experimentell, ohne Sandbox)",
-		"ui.realAppsWarning":  "Standardmäßig deaktiviert. Wenn aktiviert, lädt Iris die echte, unveränderte Anwendung jedes Projekts herunter und führt sie ohne Sandbox aus – dasselbe Vertrauensmodell wie der offizielle BOINC-Client. Aktivieren Sie dies nur für Projekte, denen Sie vertrauen.",
+		"ui.realAppsWarning":  "Standardmäßig aktiviert. Iris lädt die echte, unveränderte Anwendung jedes Projekts herunter und führt sie ohne Sandbox aus – dasselbe Vertrauensmodell wie der offizielle BOINC-Client. Deaktivieren Sie dies, wenn Sie den Projekten nicht vertrauen.",
 		"ui.refreshNow":       "Jetzt aktualisieren",
 		"ui.resetDefaults":    "Auf Standard zurücksetzen",
 		"ui.resume":           "Fortsetzen",

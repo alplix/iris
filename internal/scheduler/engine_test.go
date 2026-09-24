@@ -261,16 +261,16 @@ func TestMatchAppVersionPrefersExactVersionAndPlanClass(t *testing.T) {
 		{AppName: "old_cpu_app", VersionNum: 3, PlanClass: ""},
 	}
 
-	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 5, PlanClass: "cuda_fma"}); !ok || av.AppName != "cuda_app" {
+	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 5, PlanClass: "cuda_fma"}, ""); !ok || av.AppName != "cuda_app" {
 		t.Errorf("expected an exact (version, plan_class) match to win, got %+v (ok=%v)", av, ok)
 	}
-	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 3, PlanClass: ""}); !ok || av.AppName != "old_cpu_app" {
+	if av, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 3, PlanClass: ""}, ""); !ok || av.AppName != "old_cpu_app" {
 		t.Errorf("expected version_num=3 to match old_cpu_app, got %+v (ok=%v)", av, ok)
 	}
-	if _, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 99}); ok {
+	if _, ok := matchAppVersion(versions, ReplyResult{AppVersionNum: 99}, ""); ok {
 		t.Error("a version_num nothing offers should not match")
 	}
-	if av, ok := matchAppVersion([]AppVersionXML{{AppName: "only_one", VersionNum: 1}}, ReplyResult{AppVersionNum: 42}); !ok || av.AppName != "only_one" {
+	if av, ok := matchAppVersion([]AppVersionXML{{AppName: "only_one", VersionNum: 1}}, ReplyResult{AppVersionNum: 42}, ""); !ok || av.AppName != "only_one" {
 		t.Errorf("a single app_version on offer should match even on a version_num mismatch, got %+v (ok=%v)", av, ok)
 	}
 }
@@ -595,5 +595,59 @@ func TestResourceShareFractionSplitsByShareWithTheBoincDefault(t *testing.T) {
 	}
 	if got := resourceShareFraction(nil, "x"); got != 1 {
 		t.Errorf("no projects should give 1, got %v", got)
+	}
+}
+
+// TestWorkunitInputsAndResultOutputsAreSeparated checks a real-format reply:
+// the workunit names the inputs and command line, the result only the output
+// (a generated_locally file with its upload address and certificate).
+func TestWorkunitInputsAndResultOutputsAreSeparated(t *testing.T) {
+	const reply = `<scheduler_reply>
+<app_version><app_name>a</app_name><version_num>7</version_num><platform>p</platform>
+<file_ref><file_name>exe</file_name><open_name>run</open_name><main_program/></file_ref></app_version>
+<workunit><name>w</name><app_name>a</app_name><command_line>--x</command_line>
+<file_ref><file_name>in0</file_name><open_name>input</open_name></file_ref></workunit>
+<result><name>r</name><wu_name>w</wu_name><report_deadline>123</report_deadline><version_num>7</version_num>
+<file_ref><file_name>out0</file_name><open_name>result</open_name></file_ref></result>
+<file_info><name>exe</name><url>http://x/exe</url><md5_cksum>m1</md5_cksum><nbytes>3</nbytes></file_info>
+<file_info><name>in0</name><url>http://x/in0</url><md5_cksum>m2</md5_cksum><nbytes>4</nbytes></file_info>
+<file_info><name>out0</name><generated_locally/><upload_when_present/><max_nbytes>500</max_nbytes><url>http://x/up</url><xml_signature>
+SIGNED
+</xml_signature></file_info>
+</scheduler_reply>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, reply) }))
+	defer srv.Close()
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "W"})
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	added := fs.Added()
+	if len(added) != 1 {
+		t.Fatalf("expected one task, got %d (messages %v)", len(added), fs.Messages())
+	}
+	r := added[0]
+	if r.CmdLine != "--x" || r.Deadline != 123 || r.VersionNum != 7 || r.AppName != "a" {
+		t.Errorf("task fields wrong: %+v", r)
+	}
+	var in, exe *FileInfo
+	for i := range r.Files {
+		switch r.Files[i].Name {
+		case "in0":
+			in = &r.Files[i]
+		case "exe":
+			exe = &r.Files[i]
+		}
+	}
+	if in == nil || in.OpenName != "input" || in.MD5 != "m2" || in.URL != "http://x/in0" {
+		t.Errorf("input file wrong: %+v", in)
+	}
+	if exe == nil || !exe.MainProgram || exe.OpenName != "run" || exe.MD5 != "m1" {
+		t.Errorf("app file wrong: %+v", exe)
+	}
+	if len(r.Outputs) != 1 || r.Outputs[0].Name != "out0" || r.Outputs[0].OpenName != "result" || r.Outputs[0].MaxNBytes != 500 ||
+		len(r.Outputs[0].URLs) != 1 || strings.TrimSpace(r.Outputs[0].Signature) != "SIGNED" {
+		t.Errorf("output wrong: %+v", r.Outputs)
+	}
+	if len(r.Files) != 2 {
+		t.Errorf("the output must not be treated as a download: %+v", r.Files)
 	}
 }
