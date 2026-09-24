@@ -271,6 +271,11 @@ func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 		}
 	}
 	hi.Coprocs.Count = float64(len(specs.GPUs))
+	if hi.Coprocs.NvidiaDevCount > 0 {
+		hi.Coprocs.NvidiaCCMajor, hi.Coprocs.NvidiaCCMinor = specs.Nvidia.CCMajor, specs.Nvidia.CCMinor
+		hi.Coprocs.NvidiaDriverVersion = specs.Nvidia.Driver
+		hi.Coprocs.CudaVersion = float64(specs.Nvidia.CudaVersion)
+	}
 	return hi, props
 }
 
@@ -761,6 +766,8 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 		MNbytes: hi.MNbytes, DFree: hi.DFree, DTotal: hi.DTotal, HostCPID: hi.HostCPID,
 		NvidiaCount: int(hi.Coprocs.NvidiaDevCount), NvidiaName: nvidiaName,
 		AtiCount: int(hi.Coprocs.AtiDevCount), AtiName: atiName,
+		NvidiaCCMajor: int(hi.Coprocs.NvidiaCCMajor), NvidiaCCMinor: int(hi.Coprocs.NvidiaCCMinor),
+		CudaVersion: int(hi.Coprocs.CudaVersion), NvidiaDriver: hi.Coprocs.NvidiaDriverVersion,
 		NvidiaMem: vramFor(a.s.OpenCLGpuProps, nvidiaName), AtiMem: vramFor(a.s.OpenCLGpuProps, atiName),
 	}
 }

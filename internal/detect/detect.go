@@ -18,6 +18,8 @@ type Specs struct {
 	DFree     float64
 	DTotal    float64
 	GPUs      []GPU
+	// Nvidia is filled only when an NVIDIA GPU is present and nvidia-smi answers.
+	Nvidia NvidiaDetails
 }
 
 type GPU struct {
@@ -48,6 +50,12 @@ func Detect() Specs {
 	}
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
+	for _, g := range s.GPUs {
+		if g.Vendor == "NVIDIA" {
+			s.Nvidia = nvidiaDetails()
+			break
+		}
+	}
 	if s.Vendor == "" {
 		s.Vendor = runtime.GOARCH
 	}

@@ -123,6 +123,14 @@ type CoprocCudaXML struct {
 	// TotalGlobalMem is the video memory in bytes; without it a project lists
 	// the card as having 0 MB.
 	TotalGlobalMem float64 `xml:"totalGlobalMem,omitempty"`
+	// Compute capability (e.g. 12/0), CUDA and driver versions: plan classes
+	// refuse a device whose compute capability they see as 0.
+	Major        int     `xml:"major,omitempty"`
+	Minor        int     `xml:"minor,omitempty"`
+	CudaVersion  int     `xml:"cudaVersion,omitempty"`
+	DrvVersion   int     `xml:"drvVersion,omitempty"`
+	ReqSecs      float64 `xml:"req_secs"`
+	ReqInstances float64 `xml:"req_instances"`
 }
 
 // CoprocAtiXML is the AMD/ATI equivalent of CoprocCudaXML. HaveCAL is left
@@ -138,7 +146,9 @@ type CoprocAtiXML struct {
 	PeakFlops  float64  `xml:"peak_flops,omitempty"`
 	// LocalRAM is the video memory in megabytes (the reference client writes
 	// this one in MB, unlike CUDA's bytes).
-	LocalRAM float64 `xml:"localRAM,omitempty"`
+	LocalRAM     float64 `xml:"localRAM,omitempty"`
+	ReqSecs      float64 `xml:"req_secs"`
+	ReqInstances float64 `xml:"req_instances"`
 }
 
 // ResultXML is one finished task as the reference client reports it
