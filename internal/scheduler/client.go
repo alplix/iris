@@ -297,6 +297,10 @@ type WorkunitXML struct {
 	VersionNum int          `xml:"version_num"`
 	CmdLine    string       `xml:"command_line"`
 	FileRef    []FileRefXML `xml:"file_ref"`
+	// RscFpopsEst is the project's estimate of the work in floating point
+	// operations, which is how a task with no progress reports gets a
+	// realistic progress bar.
+	RscFpopsEst float64 `xml:"rsc_fpops_est"`
 }
 
 // ResultAckXML is a <result_ack> / <result_abort> entry.

@@ -52,6 +52,9 @@ type ProjectState struct {
 	// master page, so it is scraped only once per run rather than before
 	// every single contact.
 	SchedulerURLs []string
+	// NoWorkStreak counts consecutive contacts that asked for work and got
+	// none; it drives the exponential back-off below.
+	NoWorkStreak int
 }
 
 type ProjectConfig struct {
@@ -153,6 +156,8 @@ type ResultInfo struct {
 	Platform  string
 	PlanClass string
 	Outputs   []OutputInfo
+	// EstRuntime is the expected run time in seconds on this host (0 = unknown).
+	EstRuntime float64
 }
 
 // OutputInfo is one file a task produces and uploads (see state.OutputFile).
@@ -266,11 +271,43 @@ func (e *Engine) runCycle() {
 		if proj.DontRequestMoreWork != 0 {
 			continue
 		}
-		if time.Since(ps.LastRPC) < ps.MinRPCInterval {
+		since := time.Since(ps.LastRPC)
+		if since < ps.MinRPCInterval && !(hasFinishedResult(e.state.GetResults(), proj.URL) && since >= reportRetryInterval(e.cfg.MinRPCInterval)) {
 			continue
 		}
 		e.doRPC(ps)
 	}
+}
+
+// noWorkBackoff is the pause after n consecutive empty replies: 10 minutes,
+// doubling, capped at 4 hours.
+func noWorkBackoff(n int) time.Duration {
+	d := 10 * time.Minute
+	for i := 1; i < n && d < 4*time.Hour; i++ {
+		d *= 2
+	}
+	if d > 4*time.Hour {
+		d = 4 * time.Hour
+	}
+	return d
+}
+
+// hasFinishedResult reports whether a completed, uploaded result of the
+// project is waiting to be reported.
+func hasFinishedResult(results []ResultInfo, url string) bool {
+	for _, r := range results {
+		if r.ProjectURL == url && r.ReadyToReport == 1 && (r.State == 4 || r.State == 5) {
+			return true
+		}
+	}
+	return false
+}
+
+// reportRetryInterval is how soon a waiting report may go out even while the
+// project is in a back-off: the engine's normal minimum, so a finished task
+// is reported promptly instead of waiting out a no-work pause.
+func reportRetryInterval(min time.Duration) time.Duration {
+	return min
 }
 
 func (e *Engine) getOrCreateProject(info ProjectInfo) *ProjectState {
@@ -465,6 +502,20 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		}
 		ps.MinRPCInterval = d
 	}
+	// A project with nothing to send is asked less and less often (the
+	// reference client backs off from 10 minutes up to 4 hours), instead of
+	// every minute forever. Getting work resets it.
+	if len(reply.Results) > 0 {
+		ps.NoWorkStreak = 0
+		if reply.RequestDelay == 0 {
+			ps.MinRPCInterval = e.cfg.MinRPCInterval
+		}
+	} else if workReqSecs > 0 {
+		ps.NoWorkStreak++
+		if d := noWorkBackoff(ps.NoWorkStreak); d > ps.MinRPCInterval {
+			ps.MinRPCInterval = d
+		}
+	}
 	haveMessage := false
 	for _, m := range reply.Messages {
 		if text := strings.TrimSpace(m.Text); text != "" {
@@ -644,6 +695,11 @@ func (e *Engine) handleWork(ps *ProjectState, rr ReplyResult, fileMap map[string
 		PlanClass:     planClass,
 		Files:         files,
 		Outputs:       outputs,
+	}
+	if haveWU && wu.RscFpopsEst > 0 {
+		if flops := e.state.GetHostInfo().PFlops; flops > 0 {
+			result.EstRuntime = wu.RscFpopsEst / flops
+		}
 	}
 	if result.Deadline == 0 {
 		result.Deadline = rr.EarliestDeadline

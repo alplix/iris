@@ -157,8 +157,11 @@ type Result struct {
 	// Outputs are the files the task must produce and upload before it can be
 	// reported (from the reply's generated_locally file_infos).
 	Outputs []OutputFile `xml:"output_file"`
-	StdOut  string       `xml:"stdout"`
-	StdErr  string       `xml:"stderr"`
+	// EstimatedRuntime is the expected seconds of work on this host, used to
+	// show progress for applications that do not report any.
+	EstimatedRuntime float64 `xml:"estimated_runtime,omitempty"`
+	StdOut           string  `xml:"stdout"`
+	StdErr           string  `xml:"stderr"`
 }
 
 type FileInfo struct {
@@ -382,6 +385,24 @@ func (s *State) MarkOutputUploaded(name, file string) bool {
 		return all
 	}
 	return false
+}
+
+// RetryDownloadFailures puts tasks that only failed because their files could
+// not be downloaded (and were not reported yet) back in the queue. It returns
+// how many changed. Used at start-up to recover work lost to a since-fixed
+// slot-sharing bug.
+func (s *State) RetryDownloadFailures(exitStatus int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for i := range s.Results {
+		r := &s.Results[i]
+		if r.State == 5 && r.ExitStatus == exitStatus && r.ReadyToReport == 1 {
+			r.State, r.ExitStatus, r.ReadyToReport, r.ActiveTask = 0, 0, 0, 0
+			n++
+		}
+	}
+	return n
 }
 
 func (s *State) RemoveResult(name string) {

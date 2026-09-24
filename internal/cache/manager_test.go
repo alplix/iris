@@ -3,6 +3,7 @@ package cache
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -91,5 +92,36 @@ func TestUsageIsCountedPerClassAndFullIsPerClass(t *testing.T) {
 	}
 	if m.Full(false) {
 		t.Error("the CPU share (8 MB) still has room; a full GPU cache must not stop CPU work")
+	}
+}
+
+// Concurrent task starts must never be handed the same slot directory.
+func TestAllocSlotIsUniqueUnderConcurrency(t *testing.T) {
+	m := New(t.TempDir(), Config{Enabled: true, CacheSizeMB: 64, CPUCacheSizeMB: 64})
+	if err := m.Init(); err != nil {
+		t.Fatal(err)
+	}
+	const n = 64
+	got := make(chan string, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, err := m.AllocSlot(false)
+			if err != nil {
+				t.Error(err)
+			}
+			got <- s
+		}()
+	}
+	wg.Wait()
+	close(got)
+	seen := map[string]bool{}
+	for s := range got {
+		if seen[s] {
+			t.Fatalf("slot %s handed out twice", s)
+		}
+		seen[s] = true
 	}
 }
