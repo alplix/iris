@@ -1779,7 +1779,8 @@ window._openPrefs = async (hostId) => {
   if (!h) return
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
-  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => `${k}=${v}`).join('\n')
+  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name').map(([k, v]) => `${k}=${v}`).join('\n')
+  const hostNameVal = prefs?.host_name || ''
   const realAppsOn = prefs?.real_apps_enabled !== '0' // on unless explicitly turned off
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
@@ -1791,6 +1792,11 @@ window._openPrefs = async (hostId) => {
             <span style="font-weight:700">${esc(T('ui.realAppsToggle'))}</span>
           </label>
           <p class="faint" style="margin:6px 0 0;font-size:12px">${esc(T('ui.realAppsWarning'))}</p>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-weight:700;display:block;margin-bottom:4px">${esc(T('ui.hostNameLabel'))}</label>
+          <input class="input" id="host-name-input" type="text" maxlength="64" value="${jsq(hostNameVal)}" placeholder="${jsq(h.name)}" style="width:100%">
+          <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('ui.hostNameHint'))}</p>
         </div>
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
@@ -1831,10 +1837,12 @@ window._savePrefs = async (hostId) => {
     if (i < 0) continue
     const k = line.slice(0, i).trim()
     const v = line.slice(i + 1).trim()
-    if (!k || k === 'real_apps_enabled') continue // has its own checkbox, applied immediately by _toggleRealApps
+    if (!k || k === 'real_apps_enabled' || k === 'host_name') continue // has its own checkbox, applied immediately by _toggleRealApps
     fields.push([k, v])
   }
   fields.push(['real_apps_enabled', $('#real-apps-toggle')?.checked ? '1' : '0'])
+  const hostName = ($('#host-name-input')?.value || '').trim()
+  if (hostName) fields.push(['host_name', hostName])
   try {
     await api('SetPrefs', hostId, fields)
     state.modal = null

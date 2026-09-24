@@ -680,3 +680,20 @@ func TestRequestNamesTheBrand(t *testing.T) {
 		t.Errorf("request should name the client brand on its own line:\n%s", body)
 	}
 }
+
+func TestReportedOSAndHostName(t *testing.T) {
+	if got := reportedOSName("Microsoft Windows 11 Pro"); got != "Iris client - athena.org.tr | Microsoft Windows 11 Pro" {
+		t.Errorf("got %q", got)
+	}
+	if got := reportedOSName(""); got != "Iris client - athena.org.tr" {
+		t.Errorf("got %q", got)
+	}
+	e := NewEngine(newFakeState(), fakeCache{}, EngineConfig{HostNameFn: func() string { return "  Alp's PC " }})
+	if got := e.hostName(); got != "Alp's PC" {
+		t.Errorf("a name chosen in Settings must be used, got %q", got)
+	}
+	e = NewEngine(newFakeState(), fakeCache{}, EngineConfig{HostNameFn: func() string { return "" }})
+	if e.hostName() == "" {
+		t.Error("an empty setting must fall back to the machine's own name")
+	}
+}

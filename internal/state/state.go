@@ -259,6 +259,14 @@ func (s *State) Load() error {
 	}
 	// Transfers are live objects; anything persisted belongs to a previous run.
 	s.Transfers = nil
+	// Message numbers must keep counting from where the last run stopped, or
+	// every new message would look older than what a manager has already seen
+	// and never be shown.
+	for _, m := range s.Messages {
+		if m.Seqno > s.seqno {
+			s.seqno = m.Seqno
+		}
+	}
 	return nil
 }
 

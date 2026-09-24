@@ -37,6 +37,8 @@ func init() {
 		"ui.prefsHelp":       "One key=value per line. An empty value clears a setting. Changes apply to the whole client.",
 		"ui.realAppsToggle":  "Run real project applications (experimental, unsandboxed)",
 		"ui.realAppsWarning": "On by default. Iris downloads and runs each project's real, unmodified application with no sandbox — the same trust model as the official BOINC client. Turn this off if you do not trust the projects you attach.",
+		"ui.hostNameLabel":   "Computer name shown to projects",
+		"ui.hostNameHint":    "Leave empty to use this computer's own name. Projects list the computer under this name.",
 		"ui.backOnline":      "{h} is back online", "ui.tasksErrored": "{h}: {n} task(s) errored",
 		"ui.notifUnsupported": "Notifications not supported", "ui.notifEnabled": "Notifications enabled",
 		"ui.notifWorking": "Notifications are working", "ui.notifFirst": "Enable notifications first",

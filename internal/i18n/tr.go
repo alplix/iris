@@ -406,6 +406,8 @@ func init() {
 		"ui.rac":              "RAC",
 		"ui.realAppsToggle":   "Gerçek proje uygulamalarını çalıştır (deneysel, sandbox'sız)",
 		"ui.realAppsWarning":  "Varsayılan olarak açıktır. Iris, her projenin gerçek, değiştirilmemiş uygulama dosyasını hiçbir sandbox olmadan indirip çalıştırır — resmi BOINC istemcisiyle aynı güven modeli. Projelere güvenmiyorsanız kapatın.",
+		"ui.hostNameLabel":    "Projelere bildirilen bilgisayar adı",
+		"ui.hostNameHint":     "Boş bırakırsan bu bilgisayarın kendi adı kullanılır. Projeler bilgisayarı bu adla listeler.",
 		"ui.refreshNow":       "Şimdi yenile",
 		"ui.resetDefaults":    "Varsayılanlara dön",
 		"ui.resume":           "Devam",

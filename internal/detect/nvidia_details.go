@@ -17,7 +17,7 @@ type NvidiaDetails struct {
 	CudaVersion      int    // BOINC's encoding: 12080 for CUDA 12.8
 }
 
-var cudaVersionRe = regexp.MustCompile(`CUDA Version:\s*(\d+)\.(\d+)`)
+var cudaVersionRe = regexp.MustCompile(`CUDA (?:UMD )?Version:\s*(\d+)\.(\d+)`)
 
 // parseNvidiaDetails reads `nvidia-smi --query-gpu=compute_cap,driver_version
 // --format=csv,noheader` (first device) and the plain nvidia-smi banner.

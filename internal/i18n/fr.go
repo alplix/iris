@@ -406,6 +406,8 @@ func init() {
 		"ui.rac":              "RAC",
 		"ui.realAppsToggle":   "Exécuter les vraies applications du projet (expérimental, sans sandbox)",
 		"ui.realAppsWarning":  "Activé par défaut. Iris télécharge et exécute l'application réelle et non modifiée de chaque projet sans aucun sandbox — le même modèle de confiance que le client BOINC officiel. Désactivez-le si vous ne faites pas confiance aux projets.",
+		"ui.hostNameLabel":    "Nom de l'ordinateur communiqué aux projets",
+		"ui.hostNameHint":     "Laissez vide pour utiliser le nom de cet ordinateur. Les projets listent l'ordinateur sous ce nom.",
 		"ui.refreshNow":       "Actualiser maintenant",
 		"ui.resetDefaults":    "Rétablir les valeurs par défaut",
 		"ui.resume":           "Reprendre",

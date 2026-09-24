@@ -138,3 +138,25 @@ func TestResetResultsWithFile(t *testing.T) {
 		}
 	}
 }
+
+// After a restart, new messages must be numbered after the saved ones; they
+// used to start again at 1, so a manager that had seen message 800 never
+// showed anything new (the event log looked frozen at the last run's end).
+func TestMessageNumbersContinueAfterARestart(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	s.AddMessage("old 1", "", 1)
+	s.AddMessage("old 2", "", 1)
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s2 := New(dir)
+	if err := s2.Load(); err != nil {
+		t.Fatal(err)
+	}
+	s2.AddMessage("new", "", 1)
+	got := s2.GetMessages(2)
+	if len(got) != 1 || got[0].Body != "new" {
+		t.Fatalf("a manager that has seen message 2 must get the new one, got %+v", got)
+	}
+}
