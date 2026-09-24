@@ -21,11 +21,14 @@ machine in your fleet — local and remote — from one window.
 
 > **Status — please read.** Iris is young. The manager is complete, and the client's plumbing
 > (scheduler requests, file transfers, GUI RPC, credit and statistics, preferences, hardware
-> detection) is implemented and tested. It can now download and run a project's **real** application,
-> including on a GPU (an experimental, off-by-default setting — see below), but not yet with a
-> sandbox or a real GPU compute benchmark. See
-> [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris is a manager for
-> your machines and a foundation for the client, not a drop-in replacement for the BOINC client.
+> detection) is implemented and tested. It can now download and *run* a project's **real** application,
+> including on a GPU (an experimental, off-by-default setting — see below), but **it cannot yet return
+> the result**: a finished task's real output files are not uploaded to the project, so a real
+> project's work is computed but not accepted or credited. It also has no sandbox and no real GPU
+> compute benchmark, and none of this has been run end-to-end against a live project's science
+> application yet. See [Status and roadmap](#status-and-roadmap) for the honest list. Until then Iris
+> is a manager for your machines and a foundation for the client, not a drop-in replacement for the
+> BOINC client — please don't point it at real projects expecting credit.
 
 ## Contents
 
@@ -317,7 +320,8 @@ Honest overview of what exists today.
   model as the reference BOINC client, and there is no shared-memory channel to the app (so an app
   falls back to the BOINC API's own "standalone" behavior rather than getting live checkpoint/suspend
   callbacks through it). It is off by default; turn it on per host from Settings → a host's Global
-  Preferences, where the risk is stated next to the switch.
+  Preferences, where the risk is stated next to the switch. It stops at *computing* — returning the
+  result to the project is not implemented (see the first item under "Not implemented yet").
 - **Requesting GPU work.** A detected NVIDIA or AMD GPU is now advertised in the scheduler request
   (`<coprocs>`, matching the reference client's own `lib/coproc.cpp` layout), so projects can actually
   offer GPU app_versions instead of never sending any. Two honest gaps remain, both because Iris has
@@ -337,6 +341,11 @@ Honest overview of what exists today.
 
 **Not implemented yet**
 
+- **Returning a real task's result — the largest remaining gap.** Only `stdout.txt`, `stderr.txt` and
+  `fraction_done.txt` are uploaded when a task finishes. The output files a project's result template
+  declares are not uploaded with the project's upload certificates, and the completed-result report
+  carries no output `file_info`, so a real project would not accept the result (no validation, no
+  credit). Real application execution (above) therefore only gets as far as computing.
 - A settings page to actually configure a *different* resource share per project (today every project
   defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
   settings, account creation from the client.
