@@ -1,7 +1,7 @@
 # Iris
 
 [![CI](https://github.com/alplix/iris/actions/workflows/ci.yml/badge.svg)](https://github.com/alplix/iris/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/alplix/iris)](https://github.com/alplix/iris/releases)
+[![Release](https://img.shields.io/github/v/release/alplix/iris?include_prereleases)](https://github.com/alplix/iris/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Iris** is a volunteer-computing grid in one package: a small, dependency-free compute
@@ -215,7 +215,11 @@ The client's tests run on all of these in CI (through QEMU where the runner is x
 
 ## Install
 
-Download the latest release from the [Releases page](https://github.com/alplix/iris/releases).
+> **Test phase.** Every release is currently published as a GitHub *pre-release*: Iris is being tested
+> and is not ready for general use (see the status note at the top). The installers are also unsigned, so
+> Windows and macOS will show a security warning.
+
+Download the newest release from the [Releases page](https://github.com/alplix/iris/releases).
 
 - **Windows** — run `iris-amd64-installer.exe` (or `iris-arm64-installer.exe` on ARM PCs). It installs
   the manager **and** the `irisd` client to `Program Files\alplix\Iris`, adds Start-menu and desktop
