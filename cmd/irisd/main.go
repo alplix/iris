@@ -230,12 +230,15 @@ func runDaemon() {
 		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
 	})
 	workerEngine.Start()
+	energyStop := make(chan struct{})
+	go runEnergyMeter(st, overrides, energyStop)
 
 	st.AddMessage("Client started", "", 1)
 
 	<-sig
 
 	fmt.Println("\nShutting down...")
+	close(energyStop)
 	workerEngine.Stop()
 	schedEngine.Stop()
 	workerEngine.Cleanup()

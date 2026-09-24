@@ -82,6 +82,10 @@ export function GetDiskUsage(arg1) {
   return window['go']['main']['App']['GetDiskUsage'](arg1);
 }
 
+export function GetEnergy(arg1) {
+  return window['go']['main']['App']['GetEnergy'](arg1);
+}
+
 export function GetHistory(arg1) {
   return window['go']['main']['App']['GetHistory'](arg1);
 }

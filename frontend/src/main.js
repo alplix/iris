@@ -18,6 +18,7 @@ let state = {
   daemonInfo: null,
   stats: {},
   xfers: {},
+  energy: {},
   disk: {},
   prefs: {},
   about: {},
@@ -736,6 +737,67 @@ function svgLineChart(data, width, height, color) {
   </svg>`
 }
 
+// Stacked daily bars of estimated energy (kWh): CPU below, GPU on top.
+function svgKwhBars(days, width, height, cpuColor, gpuColor) {
+  if (!days || days.length === 0) return ''
+  const pad = { l: 50, r: 10, t: 10, b: 28 }
+  const cw = width - pad.l - pad.r
+  const ch = height - pad.t - pad.b
+  const maxV = Math.max(...days.map(d => d.kwh), 0.001)
+  const yMax = maxV * 1.15
+  const barW = Math.max(3, (cw / days.length) - 3)
+  const fmt = v => v >= 10 ? v.toFixed(0) : v.toFixed(2)
+  let grid = ''
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (ch / 4) * i
+    const v = yMax - (yMax / 4) * i
+    grid += `<line x1="${pad.l}" y1="${y}" x2="${pad.l + cw}" y2="${y}" stroke="var(--border)" stroke-width="0.8" stroke-dasharray="4,4"/>`
+    grid += `<text x="${pad.l - 6}" y="${y + 4}" text-anchor="end" fill="var(--text-faint)" font-size="10" font-family="JetBrains Mono,monospace">${fmt(v)}</text>`
+  }
+  let bars = ''
+  days.forEach((d, i) => {
+    const x = pad.l + (i / days.length) * cw + 1
+    const hc = (d.cpuKWh / yMax) * ch
+    const hg = (d.gpuKWh / yMax) * ch
+    bars += `<rect x="${x}" y="${pad.t + ch - hc}" width="${barW}" height="${hc}" fill="${cpuColor}" rx="2" opacity="0.8"/>`
+    bars += `<rect x="${x}" y="${pad.t + ch - hc - hg}" width="${barW}" height="${hg}" fill="${gpuColor}" rx="2" opacity="0.8"/>`
+    if (i % Math.ceil(days.length / 8) === 0) {
+      const lab = (d.day || '').slice(4, 6) + '/' + (d.day || '').slice(6, 8)
+      bars += `<text x="${x + barW / 2}" y="${height - 8}" text-anchor="middle" fill="var(--text-faint)" font-size="10" font-family="JetBrains Mono,monospace">${lab}</text>`
+    }
+  })
+  return `<svg viewBox="0 0 ${width} ${height}" class="linechart" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>`
+}
+
+function energyCard(h) {
+  const e = state.energy[h.id]
+  if (!e) return ''
+  if (!e.supported) {
+    return `<div class="card"><div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('energy.title'))}</h3><span class="chip plain">${esc(h.name)}</span></div><div class="faint" style="font-size:12px;margin-top:6px">${esc(T('energy.na'))}</div></div>`
+  }
+  const nf = (v, d) => (v || 0).toLocaleString(locale(), { maximumFractionDigits: d })
+  const tile = (label, value, unit) => `<div style="flex:1;min-width:120px"><div class="faint" style="font-size:11px;text-transform:uppercase;letter-spacing:.04em">${esc(label)}</div><div class="num" style="font-size:22px;font-weight:700">${value}<span class="faint" style="font-size:12px;font-weight:600"> ${esc(unit)}</span></div></div>`
+  const days = (e.days || []).slice(-30)
+  return `
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('energy.title'))}</h3><span class="chip plain">${esc(h.name)}</span></div>
+      <div class="row wrap" style="gap:16px">
+        ${tile(T('energy.total'), nf(e.totalKWh, e.totalKWh < 10 ? 2 : 1), 'kWh')}
+        ${tile(T('energy.co2'), nf(e.totalKgCO2, e.totalKgCO2 < 10 ? 2 : 1), 'kg')}
+        ${tile(T('energy.today'), nf(e.todayKWh, 2), 'kWh')}
+      </div>
+      <div class="faint" style="font-size:12px">${esc(T('energy.car', { v: nf(e.carKm, 0) }))}</div>
+      ${days.length ? `
+        <div class="row" style="gap:16px;padding-left:16px">
+          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#6366f1"></span><span class="faint" style="font-size:11px">${esc(T('energy.cpu'))} ${nf(e.cpuKWh, 2)} kWh</span></span>
+          <span class="row" style="gap:5px"><span style="width:10px;height:10px;border-radius:3px;background:#a78bfa"></span><span class="faint" style="font-size:11px">${esc(T('energy.gpu'))} ${nf(e.gpuKWh, 2)} kWh${e.gpuModelled ? ' *' : ''}</span></span>
+        </div>
+        ${svgKwhBars(days, 800, 200, '#6366f1', '#a78bfa')}` : ''}
+      ${e.gpuModelled ? `<div class="faint" style="font-size:11px">* ${esc(T('energy.gpuModelled'))}</div>` : ''}
+      <div class="faint" style="font-size:11px">${esc(T('energy.note'))} (${nf(e.cpuWatts, 0)} W CPU, ${nf(e.gpuWatts, 0)} W GPU, ${nf(e.gridG, 0)} g CO₂/kWh)</div>
+    </div>`
+}
+
 function svgBarChart(data, width, height, upColor, downColor) {
   if (!data || data.length === 0) return `<div class="empty" style="padding:18px"><b class="faint">${esc(T('ui.noXferHistory'))}</b></div>`
   const pad = { l: 50, r: 10, t: 10, b: 28 }
@@ -772,6 +834,7 @@ async function loadStats() {
     try { state.stats[h.id] = await api('GetStats', h.id) } catch (e) { state.stats[h.id] = [] }
     try { state.xfers[h.id] = await api('GetXferHistory', h.id) } catch (e) { state.xfers[h.id] = [] }
     try { state.disk[h.id] = await api('GetDiskUsage', h.id) } catch (e) { state.disk[h.id] = null }
+    try { state.energy[h.id] = await api('GetEnergy', h.id) } catch (e) { state.energy[h.id] = null }
   }
 }
 
@@ -859,8 +922,12 @@ function renderStatsInner() {
     `
   }
 
-  const hasData = creditCharts || xferChart || diskCards
+  let energyCards = ''
+  for (const h of state.hosts) energyCards += energyCard(h)
+
+  const hasData = creditCharts || xferChart || diskCards || energyCards
   return `<div class="content-inner">
+    ${energyCards ? `<div class="section-title"><h2>${esc(T('energy.title'))}</h2></div><div class="cards-grid">${energyCards}</div>` : ''}
     ${creditCharts ? `<div class="section-title"><h2>${esc(T('ui.creditHistory'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${creditCharts}</div>` : ''}
     ${xferChart ? `<div style="display:flex;flex-direction:column;gap:14px">${xferChart}</div>` : ''}
     ${diskCards ? `<div class="section-title"><h2>${esc(T('ui.diskUsage'))}</h2></div><div class="cards-grid">${diskCards}</div>` : ''}
@@ -1774,13 +1841,16 @@ window._doEditHost = async (id) => {
   }
 }
 
+const ENERGY_KEYS = ['cpu_watts', 'gpu_watts', 'grid_gco2_kwh']
+
 window._openPrefs = async (hostId) => {
   const h = state.hosts.find(x => x.id === hostId)
   if (!h) return
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
-  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name').map(([k, v]) => `${k}=${v}`).join('\n')
+  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name' && !ENERGY_KEYS.includes(k)).map(([k, v]) => `${k}=${v}`).join('\n')
   const hostNameVal = prefs?.host_name || ''
+  const enVal = k => prefs?.[k] || ''
   const realAppsOn = prefs?.real_apps_enabled !== '0' // on unless explicitly turned off
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
@@ -1797,6 +1867,15 @@ window._openPrefs = async (hostId) => {
           <label style="font-weight:700;display:block;margin-bottom:4px">${esc(T('ui.hostNameLabel'))}</label>
           <input class="input" id="host-name-input" type="text" maxlength="64" value="${jsq(hostNameVal)}" placeholder="${jsq(h.name)}" style="width:100%">
           <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('ui.hostNameHint'))}</p>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-weight:700;display:block;margin-bottom:4px">${esc(T('energy.section'))}</label>
+          <div class="row wrap" style="gap:8px">
+            <label style="flex:1;min-width:130px;font-size:12px">${esc(T('energy.setCpu'))}<input class="input" id="en-cpu_watts" type="number" min="1" step="1" value="${jsq(enVal('cpu_watts'))}" placeholder="65" style="width:100%"></label>
+            <label style="flex:1;min-width:130px;font-size:12px">${esc(T('energy.setGpu'))}<input class="input" id="en-gpu_watts" type="number" min="1" step="1" value="${jsq(enVal('gpu_watts'))}" placeholder="150" style="width:100%"></label>
+            <label style="flex:1;min-width:130px;font-size:12px">${esc(T('energy.setGrid'))}<input class="input" id="en-grid_gco2_kwh" type="number" min="1" step="1" value="${jsq(enVal('grid_gco2_kwh'))}" placeholder="475" style="width:100%"></label>
+          </div>
+          <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('energy.setHint'))}</p>
         </div>
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
@@ -1837,12 +1916,16 @@ window._savePrefs = async (hostId) => {
     if (i < 0) continue
     const k = line.slice(0, i).trim()
     const v = line.slice(i + 1).trim()
-    if (!k || k === 'real_apps_enabled' || k === 'host_name') continue // has its own checkbox, applied immediately by _toggleRealApps
+    if (!k || k === 'real_apps_enabled' || k === 'host_name' || ENERGY_KEYS.includes(k)) continue // has its own checkbox, applied immediately by _toggleRealApps
     fields.push([k, v])
   }
   fields.push(['real_apps_enabled', $('#real-apps-toggle')?.checked ? '1' : '0'])
   const hostName = ($('#host-name-input')?.value || '').trim()
   if (hostName) fields.push(['host_name', hostName])
+  for (const k of ENERGY_KEYS) {
+    const v = ($('#en-' + k)?.value || '').trim()
+    if (v && Number(v) > 0) fields.push([k, v])
+  }
   try {
     await api('SetPrefs', hostId, fields)
     state.modal = null

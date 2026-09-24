@@ -221,6 +221,10 @@ func (a *App) GetXferHistory(hostID string) ([]app.XferPoint, error) {
 	return a.mgr.XferHistory(hostID)
 }
 
+func (a *App) GetEnergy(hostID string) (*app.EnergyInfo, error) {
+	return a.mgr.Energy(hostID)
+}
+
 func (a *App) GetDiskUsage(hostID string) (*app.DiskInfo, error) {
 	return a.mgr.DiskUsage(hostID)
 }

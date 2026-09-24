@@ -87,6 +87,7 @@ func (a *API) GetXferHistory(h string) ([]app.XferPoint, error) {
 	return a.mgr.XferHistory(h)
 }
 func (a *API) GetDiskUsage(h string) (*app.DiskInfo, error) { return a.mgr.DiskUsage(h) }
+func (a *API) GetEnergy(h string) (*app.EnergyInfo, error)  { return a.mgr.Energy(h) }
 func (a *API) TestHost(host string, port int, pw string) (string, error) {
 	return a.mgr.TestHost(app.HostCfg{Host: host, Port: port, Password: pw})
 }

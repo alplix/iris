@@ -29,6 +29,8 @@ type Handler interface {
 	GetStats() ([]byte, error)
 	GetDiskUsage() ([]byte, error)
 	GetDailyXferHistory() ([]byte, error)
+	// GetIrisEnergy is an Iris extension: the energy/carbon estimate history.
+	GetIrisEnergy() ([]byte, error)
 	GetPrefsOverride() ([]byte, error)
 	SetPrefsOverride(pairs [][2]string) error
 	SetRunMode(mode string) error
@@ -207,6 +209,9 @@ func (s *Server) dispatch(sess *session, request string) string {
 	}
 	if strings.HasPrefix(req, "<get_disk_usage") {
 		return s.wrapCall(s.handler.GetDiskUsage())
+	}
+	if strings.HasPrefix(req, "<get_iris_energy") {
+		return s.wrapCall(s.handler.GetIrisEnergy())
 	}
 	if strings.HasPrefix(req, "<get_daily_xfer") {
 		return s.wrapCall(s.handler.GetDailyXferHistory())

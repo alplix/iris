@@ -331,6 +331,15 @@ Honest overview of what exists today.
   again; a restart no longer throws finished work away). Covered by a test that runs the real
   scheduler and worker engines against a project double whose upload handler checks the certificate,
   size and MD5 as the real one does, and whose scheduler rejects a malformed report.
+- **Energy and carbon counter.** The client estimates the electricity the work it runs uses and the
+  CO2-equivalent that corresponds to, per day, and the manager's Statistics page shows totals, today,
+  a CPU/GPU chart and a "km by car" comparison. It is an **estimate, not a meter**: only Iris's own running
+  tasks are counted; the CPU is modelled from a full-load wattage (each running task keeps one logical
+  core busy — default 65 W for the whole CPU), and an NVIDIA GPU is read from `nvidia-smi` while a GPU task
+  runs (otherwise a configured figure, default 150 W, and the chart says so). Carbon uses a grid intensity
+  (default 475 g CO2/kWh, roughly a world average). All three figures are set per host under Settings → a
+  host's Global Preferences, and the carbon figures use the current grid number for the whole history.
+  Idle power and other programs are not included, and a stock BOINC client cannot report it.
 - **Requesting GPU work.** A detected NVIDIA or AMD GPU is now advertised in the scheduler request
   (`<coprocs>`, matching the reference client's own `lib/coproc.cpp` layout), so projects can actually
   offer GPU app_versions instead of never sending any. Two honest gaps remain, both because Iris has
