@@ -587,11 +587,24 @@ func (h *clientHandler) ProjectOp(url, op string) error {
 		h.state.SetProjectSuspended(url, true)
 	case "resume":
 		h.state.SetProjectSuspended(url, false)
+	case "nomorework":
+		h.state.SetProjectNoMoreWork(url, true)
+		h.state.AddMessage("No new tasks will be requested from "+url, url, 1)
+	case "allowmorework":
+		h.state.SetProjectNoMoreWork(url, false)
+		h.state.AddMessage("New tasks will be requested from "+url+" again", url, 1)
+		if h.sched != nil {
+			h.sched.RequestUpdate(url)
+		}
 	case "update":
 		h.state.SetProjectUpdate(url)
 		if h.sched != nil {
 			h.sched.RequestUpdate(url)
 		}
+	default:
+		// Saying "done" for something never done is how these two buttons
+		// looked fine while doing nothing.
+		return fmt.Errorf("unsupported project operation %q", op)
 	}
 	return nil
 }

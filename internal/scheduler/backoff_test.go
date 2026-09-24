@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -52,5 +53,22 @@ func TestAFinishedResultIsNotHeldBackByTheBackoff(t *testing.T) {
 	}
 	if reportRetryInterval(30*time.Second) != 30*time.Second {
 		t.Error("a waiting report must not wait out a no-work back-off")
+	}
+}
+
+func TestNoMoreWorkAsksForNoWorkButStillReports(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "P", DontRequestMoreWork: 1})
+	fs.results = []ResultInfo{{Name: "done", ProjectURL: srv.URL, State: 4, ReadyToReport: 1}}
+	e := NewEngine(fs, fakeCache{}, EngineConfig{})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if !strings.Contains(body, "<work_req_seconds>0</work_req_seconds>") || !strings.Contains(body, "<name>done</name>") {
+		t.Errorf("must report the finished result and request no work:\n%s", body)
 	}
 }

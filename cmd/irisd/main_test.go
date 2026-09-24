@@ -315,3 +315,25 @@ func TestBenchmarkUpdatesHostSpeed(t *testing.T) {
 	}
 	t.Fatal("benchmark never published a result")
 }
+
+// The "no new tasks" / "allow new tasks" buttons used to be accepted and then
+// ignored: the handler had no case for them.
+func TestProjectOpNoMoreWorkTogglesTheFlag(t *testing.T) {
+	r := newRig(t)
+	r.st.AddProject(state.Project{Name: "P", MasterURL: "https://p.example/"})
+	if err := r.h.ProjectOp("https://p.example/", "nomorework"); err != nil {
+		t.Fatal(err)
+	}
+	if r.st.GetProjectByURL("https://p.example/").DontRequestMoreWork != 1 {
+		t.Error("nomorework must set the flag")
+	}
+	if err := r.h.ProjectOp("https://p.example/", "allowmorework"); err != nil {
+		t.Fatal(err)
+	}
+	if r.st.GetProjectByURL("https://p.example/").DontRequestMoreWork != 0 {
+		t.Error("allowmorework must clear the flag")
+	}
+	if err := r.h.ProjectOp("https://p.example/", "bogus"); err == nil {
+		t.Error("an unknown operation must be an error, not a silent success")
+	}
+}
