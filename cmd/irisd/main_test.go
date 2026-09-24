@@ -337,3 +337,18 @@ func TestProjectOpNoMoreWorkTogglesTheFlag(t *testing.T) {
 		t.Error("an unknown operation must be an error, not a silent success")
 	}
 }
+
+func TestIrisEnergyReplyCarriesTheHistoryAndFigures(t *testing.T) {
+	r := newRig(t)
+	r.st.AddEnergy(time.Now(), 500, 250, false)
+	b, err := r.h.GetIrisEnergy()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{"<iris_energy>", "<cpu_watts>65</cpu_watts>", "<grid_g_per_kwh>475</grid_g_per_kwh>", "<cpu_wh>500</cpu_wh>", "<gpu_est_wh>250</gpu_est_wh>"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("reply lacks %s:\n%s", want, s)
+		}
+	}
+}

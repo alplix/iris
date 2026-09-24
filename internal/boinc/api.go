@@ -87,6 +87,36 @@ func (c *Client) GetDailyXferHistory() ([]DailyXfer, error) {
 	return d.X, err
 }
 
+// IrisEnergy is Iris's own energy estimate reply (a stock BOINC client does not
+// know the request and answers with an error).
+type IrisEnergy struct {
+	CPUWatts float64         `xml:"cpu_watts"`
+	GPUWatts float64         `xml:"gpu_watts"`
+	Grid     float64         `xml:"grid_g_per_kwh"`
+	Days     []IrisEnergyDay `xml:"day"`
+}
+
+type IrisEnergyDay struct {
+	Day      int64   `xml:"d"`
+	CPUWh    float64 `xml:"cpu_wh"`
+	GPUWh    float64 `xml:"gpu_wh"`
+	GPUEstWh float64 `xml:"gpu_est_wh"`
+}
+
+func (c *Client) GetIrisEnergy() (*IrisEnergy, error) {
+	frame, err := c.Call("<get_iris_energy/>")
+	if err != nil {
+		return nil, err
+	}
+	var d struct {
+		E IrisEnergy `xml:"iris_energy"`
+	}
+	if err := ParseWrapped(frame, &d); err != nil {
+		return nil, err
+	}
+	return &d.E, nil
+}
+
 func (c *Client) GetDiskUsage() (*DiskUsage, error) {
 	frame, err := c.Call("<get_disk_usage/>")
 	if err != nil {

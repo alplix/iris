@@ -1,6 +1,9 @@
 package state
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestUpdateProjectCreditWritesProjectAndHistory(t *testing.T) {
 	s := New(t.TempDir())
@@ -180,5 +183,20 @@ func TestRetryDownloadFailuresRequeuesOnlyUnreportedOnes(t *testing.T) {
 				t.Errorf("%s must be left alone: %+v", r.Name, r)
 			}
 		}
+	}
+}
+
+func TestAddEnergyAccumulatesPerDayAndFlagsModelledGPU(t *testing.T) {
+	s := New(t.TempDir())
+	now := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
+	s.AddEnergy(now, 10, 20, true)
+	s.AddEnergy(now.Add(time.Hour), 5, 30, false)
+	s.AddEnergy(now.Add(48*time.Hour), 1, 0, true)
+	s.AddEnergy(now, 0, 0, true) // nothing to add
+	if len(s.Energy) != 2 {
+		t.Fatalf("want 2 days, got %+v", s.Energy)
+	}
+	if e := s.Energy[0]; e.CPUWh != 15 || e.GPUWh != 50 || e.GPUEstWh != 30 {
+		t.Errorf("day totals wrong: %+v", e)
 	}
 }

@@ -48,6 +48,8 @@ export function GetDaemonStatus():Promise<string>;
 
 export function GetDiskUsage(arg1:string):Promise<app.DiskInfo>;
 
+export function GetEnergy(arg1:string):Promise<app.EnergyInfo>;
+
 export function GetHistory(arg1:string):Promise<Array<app.HistPoint>>;
 
 export function GetHostInfo():Promise<Record<string, any>>;

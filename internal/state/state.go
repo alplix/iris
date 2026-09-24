@@ -28,6 +28,7 @@ type State struct {
 	Credits        []CreditDay  `xml:"credit_history>day"`
 	Xfers          []DayXfer    `xml:"daily_xfers>dx"`
 	TaskDays       []TaskDay    `xml:"task_history>day"`
+	Energy         []EnergyDay  `xml:"energy_history>day"`
 
 	mu      sync.RWMutex
 	stateFP string
@@ -83,6 +84,16 @@ type CreditDay struct {
 	UserExpavg float64 `xml:"ue"`
 	HostTotal  float64 `xml:"ht"`
 	HostExpavg float64 `xml:"he"`
+}
+
+// EnergyDay is the estimated electricity used by Iris's tasks on one day
+// (unix days), in watt-hours. GPUEstWh is the part of GPUWh that was modelled
+// because the GPU could not be read.
+type EnergyDay struct {
+	Day      int64   `xml:"d"`
+	CPUWh    float64 `xml:"c"`
+	GPUWh    float64 `xml:"g"`
+	GPUEstWh float64 `xml:"ge"`
 }
 
 // DayXfer is the number of bytes moved on one day (unix days), in BOINC's
@@ -561,6 +572,7 @@ func (s *State) MarshalState() ([]byte, error) {
 	cp.Credits = nil
 	cp.Xfers = nil
 	cp.TaskDays = nil
+	cp.Energy = nil
 	return xml.MarshalIndent(cp, "", "  ")
 }
 
@@ -663,6 +675,7 @@ func (s *State) Snapshot() *State {
 	cp.Credits = append([]CreditDay(nil), s.Credits...)
 	cp.Xfers = append([]DayXfer(nil), s.Xfers...)
 	cp.TaskDays = append([]TaskDay(nil), s.TaskDays...)
+	cp.Energy = append([]EnergyDay(nil), s.Energy...)
 	return cp
 }
 
@@ -672,6 +685,39 @@ const (
 )
 
 func unixDay(t time.Time) int64 { return t.Unix() / 86400 }
+
+const maxEnergyDays = 730
+
+// AddEnergy adds watt-hours used at time t to that day's total. measured says
+// whether the GPU part was a real reading (otherwise it is booked as modelled).
+func (s *State) AddEnergy(t time.Time, cpuWh, gpuWh float64, measured bool) {
+	if cpuWh <= 0 && gpuWh <= 0 {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	day := unixDay(t)
+	idx := -1
+	for i := len(s.Energy) - 1; i >= 0; i-- {
+		if s.Energy[i].Day == day {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.Energy = append(s.Energy, EnergyDay{Day: day})
+		idx = len(s.Energy) - 1
+		if len(s.Energy) > maxEnergyDays {
+			s.Energy = s.Energy[len(s.Energy)-maxEnergyDays:]
+			idx = len(s.Energy) - 1
+		}
+	}
+	s.Energy[idx].CPUWh += cpuWh
+	s.Energy[idx].GPUWh += gpuWh
+	if !measured {
+		s.Energy[idx].GPUEstWh += gpuWh
+	}
+}
 
 // UpdateProjectCredit stores the credit figures a project scheduler reported
 // and records them in the per-day history the Statistics page charts.
