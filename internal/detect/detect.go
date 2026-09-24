@@ -36,6 +36,9 @@ func Detect() Specs {
 		Ncpus:     runtime.NumCPU(),
 		MNbytes:   getRAM(),
 	}
+	if n, v := detectOS(); n != "" {
+		s.OSName, s.OSVersion = n, v
+	}
 	s.Vendor, s.Model = getCPUInfo()
 	if flops, known := estimateFLOPS(s.Ncpus, s.Model); known {
 		s.PFlops = flops
@@ -46,7 +49,11 @@ func Detect() Specs {
 		s.PFlops = Benchmark(s.Ncpus, 400*time.Millisecond)
 	}
 	if rel := kernelRelease(); rel != "" && runtime.GOOS == "linux" {
-		s.OSVersion = rel + " " + runtime.GOARCH
+		if s.OSName == "linux" {
+			s.OSVersion = rel + " " + runtime.GOARCH
+		} else {
+			s.OSVersion += " [" + rel + "]"
+		}
 	}
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()

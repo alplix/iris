@@ -204,6 +204,7 @@ func runDaemon() {
 		UserAgent:         product.UserAgent(),
 		DataDir:           dataDir,
 		HostCPID:          st.HostInfo.HostCPID,
+		HostNameFn:        func() string { return overrides.Get()["host_name"] },
 	})
 	handler.sched = schedEngine
 	schedEngine.Start()

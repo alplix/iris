@@ -82,18 +82,20 @@ type Request struct {
 }
 
 type HostInfoXML struct {
-	XMLName   xml.Name `xml:"host_info"`
-	HostCPID  string   `xml:"host_cpid"`
-	OsName    string   `xml:"os_name"`
-	OsVersion string   `xml:"os_version"`
-	PVendor   string   `xml:"p_vendor"`
-	PModel    string   `xml:"p_model"`
-	PNcpus    int      `xml:"p_ncpus"`
-	PFlops    float64  `xml:"p_fpops"`
-	MNbytes   float64  `xml:"m_nbytes"`
-	DFree     float64  `xml:"d_free"`
-	DTotal    float64  `xml:"d_total"`
-	ConnType  int      `xml:"conn_type"`
+	XMLName    xml.Name `xml:"host_info"`
+	HostCPID   string   `xml:"host_cpid"`
+	Timezone   int      `xml:"timezone"`
+	DomainName string   `xml:"domain_name,omitempty"`
+	OsName     string   `xml:"os_name"`
+	OsVersion  string   `xml:"os_version"`
+	PVendor    string   `xml:"p_vendor"`
+	PModel     string   `xml:"p_model"`
+	PNcpus     int      `xml:"p_ncpus"`
+	PFlops     float64  `xml:"p_fpops"`
+	MNbytes    float64  `xml:"m_nbytes"`
+	DFree      float64  `xml:"d_free"`
+	DTotal     float64  `xml:"d_total"`
+	ConnType   int      `xml:"conn_type"`
 }
 
 // CoprocsXML is a host_info's GPU section, exactly as the reference client

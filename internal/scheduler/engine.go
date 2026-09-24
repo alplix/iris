@@ -31,6 +31,9 @@ type EngineConfig struct {
 	UserAgent         string
 	DataDir           string
 	HostCPID          string
+	// HostNameFn, when set and non-empty, is the computer name reported to
+	// projects instead of the machine's own (a Settings choice).
+	HostNameFn func() string
 }
 
 type ProjectState struct {
@@ -386,17 +389,19 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		// The reference client writes <coprocs> next to <host_info>, not inside it.
 		Coprocs: buildCoprocsXML(hostInfo, countGPUQueued(e.state.GetResults(), ps.URL)),
 		HostInfo: &HostInfoXML{
-			HostCPID:  e.cfg.HostCPID,
-			OsName:    hostInfo.OSName,
-			OsVersion: hostInfo.OSVersion,
-			PVendor:   hostInfo.Vendor,
-			PModel:    hostInfo.Model,
-			PNcpus:    hostInfo.Ncpus,
-			PFlops:    hostInfo.PFlops,
-			MNbytes:   hostInfo.MNbytes,
-			DFree:     hostInfo.DFree,
-			DTotal:    hostInfo.DTotal,
-			ConnType:  3,
+			HostCPID:   e.cfg.HostCPID,
+			Timezone:   localTimezone(),
+			DomainName: e.hostName(),
+			OsName:     reportedOSName(hostInfo.OSName),
+			OsVersion:  hostInfo.OSVersion,
+			PVendor:    hostInfo.Vendor,
+			PModel:     hostInfo.Model,
+			PNcpus:     hostInfo.Ncpus,
+			PFlops:     hostInfo.PFlops,
+			MNbytes:    hostInfo.MNbytes,
+			DFree:      hostInfo.DFree,
+			DTotal:     hostInfo.DTotal,
+			ConnType:   3,
 		},
 		CoreClientVer:   product.UserAgent(),
 		WorkReqSeconds:  workReqSecs,
@@ -750,6 +755,41 @@ func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 		}
 	}
 	return c
+}
+
+// localTimezone is the offset from UTC in seconds, as BOINC's host record has it.
+func localTimezone() int {
+	_, off := time.Now().Zone()
+	return off
+}
+
+// reportedOSName puts the client's identity in front of the operating system
+// so a project's host list says what is running there.
+func reportedOSName(os string) string {
+	const brand = "Iris client - athena.org.tr"
+	if strings.TrimSpace(os) == "" {
+		return brand
+	}
+	return brand + " | " + os
+}
+
+// hostName is the computer name to report: the one chosen in Settings, else
+// the machine's own.
+func (e *Engine) hostName() string {
+	if e.cfg.HostNameFn != nil {
+		if n := strings.TrimSpace(e.cfg.HostNameFn()); n != "" {
+			return n
+		}
+	}
+	return localHostname()
+}
+
+func localHostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // gpuWorkRequest asks for work for every GPU that has nothing queued, the same
