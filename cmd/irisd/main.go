@@ -153,6 +153,9 @@ func runDaemon() {
 		fmt.Printf("Warning: could not load state: %v\n", err)
 	}
 
+	if n := st.RetryDownloadFailures(worker.ExitResultDownload); n > 0 {
+		fmt.Printf("Re-queued %d task(s) that had only failed to download\n", n)
+	}
 	st.HostInfo, st.OpenCLGpuProps = detectHostInfo()
 	st.HostInfo.HostCPID = loadOrCreateHostCPID(dataDir)
 	st.PlatformName = scheduler.Platform()
@@ -706,20 +709,21 @@ func (a *stateAdapter) AddResult(r scheduler.ResultInfo) {
 		resources = "gpu"
 	}
 	a.s.AddResult(state.Result{
-		Name:           r.Name,
-		WuName:         r.WuName,
-		ProjectURL:     r.ProjectURL,
-		State:          r.State,
-		CmdLine:        r.CmdLine,
-		AppVersionNum:  r.AppVersionNum,
-		AppName:        r.AppName,
-		VersionNum:     r.VersionNum,
-		Platform:       r.Platform,
-		PlanClass:      r.PlanClass,
-		Resources:      resources,
-		Files:          files,
-		Outputs:        outputs,
-		ReportDeadline: r.Deadline,
+		Name:             r.Name,
+		WuName:           r.WuName,
+		ProjectURL:       r.ProjectURL,
+		State:            r.State,
+		CmdLine:          r.CmdLine,
+		AppVersionNum:    r.AppVersionNum,
+		EstimatedRuntime: r.EstRuntime,
+		AppName:          r.AppName,
+		VersionNum:       r.VersionNum,
+		Platform:         r.Platform,
+		PlanClass:        r.PlanClass,
+		Resources:        resources,
+		Files:            files,
+		Outputs:          outputs,
+		ReportDeadline:   r.Deadline,
 	})
 }
 
@@ -832,7 +836,8 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 			Slot: r.SlotPath, GPU: r.IsGPU(),
 			Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
 			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum, AppName: r.AppName,
-			Files: convertFiles(r.Files), Suspended: r.SuspendedViaGUI,
+			EstRuntime: r.EstimatedRuntime,
+			Files:      convertFiles(r.Files), Suspended: r.SuspendedViaGUI,
 			ResourceShare: shares[r.ProjectURL],
 		})
 	}

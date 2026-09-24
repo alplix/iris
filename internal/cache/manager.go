@@ -15,6 +15,7 @@ type Manager struct {
 	cpuDir  string
 	cfg     Config
 	mu      sync.RWMutex
+	allocMu sync.Mutex
 
 	usageMu sync.Mutex
 	usage   map[bool]usageSample
@@ -93,15 +94,26 @@ func (m *Manager) ProjectDir(gpu bool) string {
 	return filepath.Join(m.dataDir, "projects")
 }
 
+// AllocSlot reserves the lowest-numbered free slot directory. Reserving is a
+// single os.Mkdir (which fails if the directory exists) under a lock: tasks
+// start concurrently, and the earlier "does it exist? then create it" check
+// let several of them receive the same directory, so they overwrote each
+// other's downloaded application ("file in use" on Windows) and failed.
 func (m *Manager) AllocSlot(gpu bool) (string, error) {
 	base := m.SlotDir(gpu)
+	m.allocMu.Lock()
+	defer m.allocMu.Unlock()
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", err
+	}
 	for i := 0; i < 10000; i++ {
 		slot := filepath.Join(base, fmt.Sprintf("%d", i))
-		if _, err := os.Stat(slot); os.IsNotExist(err) {
-			if err := os.MkdirAll(slot, 0o755); err != nil {
-				return "", err
-			}
+		err := os.Mkdir(slot, 0o755)
+		if err == nil {
 			return slot, nil
+		}
+		if !os.IsExist(err) {
+			return "", err
 		}
 	}
 	return "", fmt.Errorf("no free slots in %s", base)

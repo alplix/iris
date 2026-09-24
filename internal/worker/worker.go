@@ -42,6 +42,9 @@ type Engine struct {
 	uploading   map[string]bool
 	uploadRetry map[string]time.Time
 	uploadFails map[string]int
+	// downloadFails counts failed download attempts per task; a few are
+	// retried before the task is given up on.
+	downloadFails map[string]int
 }
 
 type Config struct {
@@ -120,10 +123,12 @@ type ResultSnapshot struct {
 	CmdLine       string
 	AppVersionNum int
 	AppName       string
-	Files         []FileRef
-	Suspended     int
-	Outputs       []OutputRef
-	MaxElapSec    float64
+	// EstRuntime is the expected seconds of work (0 = unknown).
+	EstRuntime float64
+	Files      []FileRef
+	Suspended  int
+	Outputs    []OutputRef
+	MaxElapSec float64
 	// ResourceShare is the owning project's configured share (BOINC's
 	// convention: 100 if never set), used to divide free slots fairly
 	// across multiple attached projects instead of a FIFO that can starve
@@ -234,6 +239,8 @@ func NewEngine(state StateAccessor, cache CacheAccessor, projects ProjectAccesso
 		uploading:   make(map[string]bool),
 		uploadRetry: make(map[string]time.Time),
 		uploadFails: make(map[string]int),
+
+		downloadFails: make(map[string]int),
 	}
 }
 
@@ -523,6 +530,15 @@ func (e *Engine) startTask(r ResultSnapshot) {
 
 	if err := e.downloadFiles(r); err != nil {
 		log.Printf("[Worker] Download failed for %s: %v", r.Name, err)
+		e.mu.Lock()
+		e.downloadFails[r.Name]++
+		tries := e.downloadFails[r.Name]
+		e.mu.Unlock()
+		if tries < 3 {
+			e.state.AddMessage(fmt.Sprintf("Download failed for %s (attempt %d of 3), trying again: %v", r.Name, tries, err), r.ProjectURL, 2)
+			e.state.UpdateResult(r.Name, StateNew, 0, 0, 0)
+			return
+		}
 		e.state.AddMessage(fmt.Sprintf("Download failed for %s: %v", r.Name, err), r.ProjectURL, 3)
 		e.state.UpdateResult(r.Name, StateError, 0, 0, ExitResultDownload)
 		return
@@ -975,6 +991,12 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			frac := progress
 			if frac < elapsed.Seconds()/maxElap.Seconds() {
 				frac = elapsed.Seconds() / maxElap.Seconds()
+			}
+			if progress <= 0 && r.EstRuntime > 0 {
+				// The app reports no progress (it has no shared-memory channel
+				// to Iris), so estimate it from the project's own work estimate
+				// like the reference client does, not from the 24 h time limit.
+				frac = elapsed.Seconds() / r.EstRuntime
 			}
 			if frac > 0.99 {
 				frac = 0.99

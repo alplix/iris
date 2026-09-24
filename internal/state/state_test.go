@@ -160,3 +160,25 @@ func TestMessageNumbersContinueAfterARestart(t *testing.T) {
 		t.Fatalf("a manager that has seen message 2 must get the new one, got %+v", got)
 	}
 }
+
+func TestRetryDownloadFailuresRequeuesOnlyUnreportedOnes(t *testing.T) {
+	s := New(t.TempDir())
+	s.AddResult(Result{Name: "a", State: 5, ExitStatus: -186, ReadyToReport: 1})
+	s.AddResult(Result{Name: "b", State: 5, ExitStatus: -163, ReadyToReport: 1})
+	s.AddResult(Result{Name: "c", State: 4, ExitStatus: 0, ReadyToReport: 1})
+	if n := s.RetryDownloadFailures(-186); n != 1 {
+		t.Fatalf("re-queued %d, want 1", n)
+	}
+	for _, r := range s.Results {
+		switch r.Name {
+		case "a":
+			if r.State != 0 || r.ExitStatus != 0 || r.ReadyToReport != 0 {
+				t.Errorf("a not re-queued: %+v", r)
+			}
+		case "b", "c":
+			if r.ReadyToReport != 1 {
+				t.Errorf("%s must be left alone: %+v", r.Name, r)
+			}
+		}
+	}
+}
