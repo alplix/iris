@@ -268,7 +268,8 @@ func (e *Engine) runCycle() {
 		if proj.SuspendedViaGUI != 0 {
 			continue
 		}
-		if proj.DontRequestMoreWork != 0 {
+		// "No new tasks" still contacts the project to report finished work.
+		if proj.DontRequestMoreWork != 0 && !hasFinishedResult(e.state.GetResults(), proj.URL) {
 			continue
 		}
 		since := time.Since(ps.LastRPC)
@@ -409,6 +410,15 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	shareFraction := resourceShareFraction(e.state.GetProjects(), ps.URL)
 	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
 
+	gpuQueued := countGPUQueued(e.state.GetResults(), ps.URL)
+	for _, p := range e.state.GetProjects() {
+		if p.URL == ps.URL && p.DontRequestMoreWork != 0 {
+			// Report only: ask for no work of any kind.
+			workReqSecs, cpuReqSecs, cpuReqInstances = 0, 0, 0
+			gpuQueued = 1 << 20
+		}
+	}
+
 	req := &Request{
 		Authenticator: ps.Authenticator,
 		HostID:        ps.HostID,
@@ -424,7 +434,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		RRSFraction:           shareFraction,
 		PRRSFraction:          shareFraction,
 		// The reference client writes <coprocs> next to <host_info>, not inside it.
-		Coprocs: buildCoprocsXML(hostInfo, countGPUQueued(e.state.GetResults(), ps.URL)),
+		Coprocs: buildCoprocsXML(hostInfo, gpuQueued),
 		HostInfo: &HostInfoXML{
 			HostCPID:    e.cfg.HostCPID,
 			Timezone:    localTimezone(),

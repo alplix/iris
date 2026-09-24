@@ -514,6 +514,22 @@ func (s *State) SetProjectRPCState(url string, hostID, rpcSeqno int) {
 // SetProjectName gives a project its name, but only if it has none: a
 // project attached with just its URL learns its real name from the
 // scheduler's first reply, and a name the person chose is never overwritten.
+// SetProjectNoMoreWork switches a project's "don't request new tasks" flag.
+func (s *State) SetProjectNoMoreWork(url string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url {
+			if on {
+				s.Projects[i].DontRequestMoreWork = 1
+			} else {
+				s.Projects[i].DontRequestMoreWork = 0
+			}
+			return
+		}
+	}
+}
+
 func (s *State) SetProjectName(url, name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
