@@ -153,6 +153,9 @@ type OutputRef struct {
 }
 
 type FileRef struct {
+	// LocalPath, when set, is a file already on disk (the person's own
+	// application from app_info.xml) that is copied into the slot.
+	LocalPath string
 	// OpenName is the logical name the application opens the file by.
 	OpenName string
 	Name     string
@@ -639,6 +642,15 @@ func (e *Engine) downloadFiles(r ResultSnapshot) error {
 			return fmt.Errorf("the project sent an unsafe file name %q", f.Name)
 		}
 		dest := filepath.Join(r.Slot, f.Name)
+		if f.LocalPath != "" {
+			if err := copyLocalFile(f.LocalPath, dest, f.MainProgram); err != nil {
+				return fmt.Errorf("your own file %s: %w", f.Name, err)
+			}
+			if err := linkOpenName(r.Slot, f); err != nil {
+				return err
+			}
+			continue
+		}
 		if f.MD5 != "" && fileExists(dest) {
 			if ok, _ := md5Matches(dest, f.MD5); ok {
 				log.Printf("[Worker] %s already present and verified", f.Name)
@@ -682,6 +694,29 @@ func (e *Engine) downloadFiles(r ResultSnapshot) error {
 		}
 	}
 	return nil
+}
+
+// copyLocalFile copies one of the person's own files (named in app_info.xml)
+// from the project's folder into a task's slot.
+func copyLocalFile(src, dest string, executable bool) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("app_info.xml names it but it is not in the project folder (%s)", filepath.Dir(src))
+	}
+	defer in.Close()
+	mode := os.FileMode(0o644)
+	if executable {
+		mode = 0o755
+	}
+	out, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // linkOpenName makes a downloaded file available under the logical name the

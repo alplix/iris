@@ -61,7 +61,10 @@ type Request struct {
 	ClientBrand string `xml:"client_brand"`
 	// Coprocs lists the host's GPUs. The reference client writes it at the top
 	// level of the request, next to host_info (not inside it).
-	Coprocs *CoprocsXML `xml:"coprocs"`
+	// AppVersions lists the person's own applications (app_info.xml) when the
+	// platform is "anonymous".
+	AppVersions *ClientAppVersionsXML `xml:"app_versions"`
+	Coprocs     *CoprocsXML           `xml:"coprocs"`
 
 	// A real BOINC scheduler reads the client's version from these three
 	// fields (not from core_client_version) and rejects anything older than
@@ -98,6 +101,27 @@ type HostInfoXML struct {
 	DFree       float64 `xml:"d_free"`
 	DTotal      float64 `xml:"d_total"`
 	ConnType    int     `xml:"conn_type"`
+}
+
+// ClientAppVersionsXML is the <app_versions> list an anonymous-platform client
+// sends so the project only offers work for the applications it really has.
+type ClientAppVersionsXML struct {
+	Versions []ClientAppVersionXML `xml:"app_version"`
+}
+
+type ClientAppVersionXML struct {
+	AppName    string           `xml:"app_name"`
+	VersionNum int              `xml:"version_num"`
+	Platform   string           `xml:"platform"`
+	PlanClass  string           `xml:"plan_class"`
+	AvgNCPUs   float64          `xml:"avg_ncpus"`
+	Flops      float64          `xml:"flops"`
+	Coproc     *ClientCoprocXML `xml:"coproc"`
+}
+
+type ClientCoprocXML struct {
+	Type  string  `xml:"type"`
+	Count float64 `xml:"count"`
 }
 
 // CoprocsXML is a host_info's GPU section, exactly as the reference client

@@ -229,6 +229,37 @@ area; a green badge means the project has applications for that server's platfor
 account key, or e-mail and password to look it up, and attach. Projects that are not on the list
 can be entered by address.
 
+### Folders and your own applications
+
+Everything lives under the client's data folder (`C:\ProgramData\Iris` on Windows, `/var/lib/iris` or
+`~/.local/share/iris` elsewhere). Each attached project has a readable folder under `projects/`, named
+after its address as BOINC does (`einstein.phys.uwm.edu`, `asteroidsathome.net_boinc`); `slots/` holds one
+numbered folder per running task, exactly like BOINC. Older versions named these folders after a hash;
+they are renamed automatically on the next start and nothing in them is lost.
+
+To run **your own build of a project's application** (BOINC's "anonymous platform"), put the
+application files and an `app_info.xml` in that project's folder, then restart the client:
+
+```xml
+<app_info>
+  <app><name>myapp</name></app>
+  <file_info><name>myapp.exe</name><executable/></file_info>
+  <app_version>
+    <app_name>myapp</app_name>
+    <version_num>105</version_num>
+    <avg_ncpus>1</avg_ncpus>
+    <cmdline>--fast</cmdline>
+    <file_ref><file_name>myapp.exe</file_name><main_program/></file_ref>
+    <!-- for a GPU build: <coproc><type>NVIDIA</type><count>1</count></coproc> -->
+  </app_version>
+</app_info>
+```
+
+Iris then tells the project its platform is `anonymous` and lists those applications, so the project only
+sends work for them; the files are copied from the project folder into each task's slot and are never
+downloaded. A problem in the file is explained in the event log. Tested against a project double and unit
+tests, **not** yet against a live project that supports anonymous platform.
+
 ## Configuration
 
 | Setting | Where | Effect |

@@ -153,6 +153,15 @@ func runDaemon() {
 		fmt.Printf("Warning: could not load state: %v\n", err)
 	}
 
+	// Older versions named each project's folder after a hash of its address;
+	// give them readable names (nothing downloaded is lost).
+	for _, p := range append([]state.Project(nil), st.Projects...) {
+		if dir, err := project.Migrate(dataDir, p.MasterURL); err != nil {
+			fmt.Printf("Warning: could not rename the folder of %s: %v\n", p.MasterURL, err)
+		} else if dir != p.ProjectDir {
+			st.SetProjectDir(p.MasterURL, dir)
+		}
+	}
 	if n := st.RetryDownloadFailures(worker.ExitResultDownload); n > 0 {
 		fmt.Printf("Re-queued %d task(s) that had only failed to download\n", n)
 	}
@@ -703,6 +712,7 @@ func (a *stateAdapter) GetProjects() []scheduler.ProjectInfo {
 			RPCSeqno:            p.RPCSeqno,
 			SuspendedViaGUI:     p.SuspendedViaGUI,
 			DontRequestMoreWork: p.DontRequestMoreWork,
+			Dir:                 p.ProjectDir,
 		})
 	}
 	return out
@@ -711,7 +721,7 @@ func (a *stateAdapter) GetProjects() []scheduler.ProjectInfo {
 func (a *stateAdapter) AddResult(r scheduler.ResultInfo) {
 	var files []state.FileInfo
 	for _, f := range r.Files {
-		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName})
+		files = append(files, state.FileInfo{Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName, LocalPath: f.LocalPath})
 	}
 	var outputs []state.OutputFile
 	for _, o := range r.Outputs {
@@ -875,7 +885,7 @@ func convertFiles(files []state.FileInfo) []worker.FileRef {
 	var out []worker.FileRef
 	for _, f := range files {
 		out = append(out, worker.FileRef{
-			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName,
+			Name: f.Name, URL: f.URL, NBytes: f.NBytes, MD5: f.MD5, MainProgram: f.MainProgram, OpenName: f.OpenName, LocalPath: f.LocalPath,
 		})
 	}
 	return out
