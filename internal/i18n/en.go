@@ -3,13 +3,13 @@ package i18n
 func init() {
 	reg("en", map[string]string{
 		"nav.dash": "Dashboard", "nav.tasks": "Tasks", "nav.projects": "Projects",
-		"nav.transfers": "Transfers", "nav.messages": "Messages", "nav.hosts": "Servers",
+		"nav.transfers": "Transfers", "nav.messages": "Event log", "nav.hosts": "Servers",
 		"nav.settings": "Settings", "nav.stats": "Stats",
 		"page.dash": "Dashboard", "page.dash.sub": "overview of all your servers",
 		"page.tasks": "Tasks", "page.tasks.sub": "active work units and their status",
 		"page.projects": "Projects", "page.projects.sub": "manage attached projects",
 		"page.transfers": "Transfers", "page.transfers.sub": "download and upload queue",
-		"page.messages": "Messages", "page.messages.sub": "client logs and events",
+		"page.messages": "Event log", "page.messages.sub": "client logs and events",
 		"page.hosts": "Servers", "page.hosts.sub": "configure Iris connections",
 		"page.settings": "Settings", "page.settings.sub": "client preferences & power controls",
 		"page.stats": "Statistics", "page.stats.sub": "project credit history",

@@ -43,5 +43,8 @@ func init() {
 		"ui.failedOn": "Failed on: {names}", "ui.runModeSet": "Run mode -> {m}",
 		"ui.justNow": "just now", "ui.minAgo": "{n} min ago", "ui.hAgo": "{n} h ago", "ui.dAgo": "{n} d ago",
 		"ui.hardware": "Hardware", "ui.taskNotice": "Task notice", "ui.unnamed": "Unnamed", "ui.connFailed": "Connection failed",
+		"evt.allProjects": "All projects", "evt.copy": "Copy log", "evt.copied": "Copied", "evt.count": "{n} events", "evt.lastEvent": "Last event",
+		"theme.title": "Color theme", "theme.violet": "Violet", "theme.ocean": "Ocean", "theme.emerald": "Emerald", "theme.rose": "Rose", "theme.amber": "Amber", "theme.graphite": "Graphite",
+		"evt.hint": "Every contact with a project and everything the client did is listed here, newest first.",
 	})
 }

@@ -83,6 +83,9 @@ func writeHostLine(b *strings.Builder, h app.HostCfg, snap *app.Snapshot, tasks 
 		if ts, ok := tasks[p.URL]; ok {
 			line += fmt.Sprintf(", tasks completed today=%d last7days=%d errors7days=%d", ts.today, ts.week, ts.weekErr)
 		}
+		if ev := lastEventFor(snap.Messages, p.URL); ev != "" {
+			line += fmt.Sprintf(", last event: %q", ev)
+		}
 		b.WriteString(line + "\n")
 	}
 	if extra > 0 {
@@ -136,6 +139,29 @@ func writeRecentIssueLine(b *strings.Builder, msgs []app.MsgLine) {
 			return
 		}
 	}
+}
+
+// lastEventFor returns the newest event-log line about one project when it
+// is a notice or an error (the scheduler's own answer, a transfer problem,
+// ...), shortened, so "why is my
+// new project not doing anything" can be answered from what the client
+// actually logged instead of guessed.
+func lastEventFor(msgs []app.MsgLine, projectURL string) string {
+	const maxRunes = 80
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Project != projectURL {
+			continue
+		}
+		if msgs[i].Pri < 2 {
+			return "" // routine info ("Contacted ...") isn't worth the scarce request budget
+		}
+		body := strings.TrimSpace(msgs[i].Body)
+		if r := []rune(body); len(r) > maxRunes {
+			body = string(r[:maxRunes]) + "…"
+		}
+		return body
+	}
+	return ""
 }
 
 type projectTaskStat struct {

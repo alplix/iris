@@ -10,6 +10,7 @@ let state = {
   hist: {},
   selectedHost: null,
   theme: localStorage.getItem('iris-theme') || 'dark',
+  accent: (() => { try { return localStorage.getItem('iris-accent') || 'violet' } catch (e) { return 'violet' } })(),
   toasts: [],
   searchQuery: '',
   modal: null,
@@ -518,6 +519,12 @@ function renderProjects() {
             <span>${esc(T('ui.userCredit'))}: <b>${fmtCredit(p.userCredit)}</b></span>
             <span>${esc(T('ui.rac'))}: <b>${fmtCredit(p.rac)}</b></span>
           </div>
+          ${(() => {
+            const ev = lastEventFor(snap, p.url)
+            if (!ev) return ''
+            const pri = Math.min(ev.pri || 1, 3)
+            return `<div class="evt-last ${pri >= 2 ? 'msg-pri-' + pri : 'faint'}" title="${jsq(ev.body)}" onclick="window._setPage('messages')"><span class="faint">${esc(T('evt.lastEvent'))}:</span> ${esc(ev.body)}</div>`
+          })()}
           <div class="row wrap" style="gap:6px">
             <span class="chip plain">${esc(host?.name || hid)}</span>
             ${p.pending ? `<span class="badge queued">${esc(T('ui.updating'))}</span>` : ''}
@@ -577,25 +584,112 @@ function renderTransfers() {
   </div>`
 }
 
-function renderMessages() {
-  let msgs = []
+// ---- Event log ---------------------------------------------------------
+// Everything the clients logged (every scheduler contact and what the project
+// answered, transfers, errors), newest first, readable in full: filter by
+// severity and project, search, and copy it for a bug report. This is where
+// a project that "does nothing" explains itself.
+const evt = { sev: 'all', project: '', q: '' }
+
+function evtCollect() {
+  const names = {}
+  const rows = []
   for (const [hid, snap] of Object.entries(state.snaps)) {
     if (!snap.online) continue
-    for (const m of snap.messages || []) {
-      msgs.push({ ...m, hostId: hid })
-    }
+    for (const p of snap.projects || []) names[p.url] = p.name || p.url
+    for (const m of snap.messages || []) rows.push({ ...m, hostId: hid })
   }
-  msgs.sort((a, b) => b.time - a.time || b.seq - a.seq)
+  rows.sort((a, b) => b.time - a.time || b.seq - a.seq)
+  const q = evt.q.trim().toLowerCase()
+  const shown = rows.filter(m => {
+    const pri = m.pri || 1
+    if (evt.sev === 'err' && pri < 3) return false
+    if (evt.sev === 'warn' && pri < 2) return false
+    if (evt.project && m.project !== evt.project) return false
+    if (q && !((m.body || '') + ' ' + (names[m.project] || '')).toLowerCase().includes(q)) return false
+    return true
+  })
+  return { rows, shown, names }
+}
+
+function evtListHTML() {
+  const { shown, names } = evtCollect()
+  const multiHost = Object.values(state.snaps).filter(s => s.online).length > 1
+  if (shown.length === 0) {
+    return `<div class="empty"><b>${esc(T('msg.empty'))}</b><span class="faint">${esc(T('msg.emptyHint'))}</span></div>`
+  }
+  return shown.slice(0, 300).map(m => {
+    const pri = Math.min(m.pri || 1, 3)
+    const host = state.hosts.find(h => h.id === m.hostId)
+    const proj = names[m.project] || ''
+    return `<div class="evt-row">
+      <span class="num faint evt-time">${fmtTime(m.time)}</span>
+      <span class="evt-body ${pri >= 2 ? 'msg-pri-' + pri : ''}">${esc(m.body)}</span>
+      <span class="evt-tags">${proj ? `<span class="chip plain">${esc(proj)}</span>` : ''}${multiHost ? `<span class="chip plain">${esc(host?.name || m.hostId)}</span>` : ''}</span>
+    </div>`
+  }).join('')
+}
+
+function evtCountText() {
+  const { rows, shown } = evtCollect()
+  return T('evt.count', { n: shown.length === rows.length ? rows.length : `${shown.length} / ${rows.length}` })
+}
+
+function renderMessages() {
+  const { rows, names } = evtCollect()
+  const projOpts = Object.entries(names)
+    .filter(([url]) => rows.some(m => m.project === url))
+    .map(([url, name]) => `<option value="${jsq(url)}" ${evt.project === url ? 'selected' : ''}>${esc(name)}</option>`).join('')
+  const sevBtn = (v, label) => `<button class="btn sm ${evt.sev === v ? 'primary' : ''}" onclick="window._evtSev('${v}')">${esc(label)}</button>`
 
   return `<div class="content-inner">
     <div class="card">
-      <div class="card-head"><h2 class="card-title">${esc(T('nav.messages'))}</h2></div>
-      ${msgs.length > 0 ? msgs.slice(0, 100).map(m => {
-        const host = state.hosts.find(h => h.id === m.hostId)
-        return `<div class="msg-line"><span class="msg-pri-${Math.min(m.pri || 1, 3)} num faint" style="flex-shrink:0">${fmtTime(m.time)}</span><span class="grow trunc" title="${jsq(m.body)}">${esc(m.body)}</span><span class="chip plain" style="flex-shrink:0">${esc(host?.name || m.hostId)}</span></div>`
-      }).join('') : `<div class="empty"><b>${esc(T('msg.empty'))}</b></div>`}
+      <div class="card-head"><h2 class="card-title">${esc(T('nav.messages'))}</h2><span class="chip plain num" id="evt-count">${esc(evtCountText())}</span></div>
+      <p class="faint" style="margin:0 0 12px;font-size:12.5px">${esc(T('evt.hint'))}</p>
+      <div class="row wrap" style="gap:8px;margin-bottom:12px">
+        ${sevBtn('all', T('msg.lvlAll'))}${sevBtn('warn', T('msg.lvlWarn'))}${sevBtn('err', T('msg.lvlErr'))}
+        <select class="select" style="max-width:220px" onchange="window._evtProject(this.value)" aria-label="${esc(T('evt.allProjects'))}">
+          <option value="">${esc(T('evt.allProjects'))}</option>${projOpts}
+        </select>
+        <input class="input grow" style="min-width:160px" id="evt-search" value="${jsq(evt.q)}" placeholder="${esc(T('msg.searchPh'))}" oninput="window._evtSearch(this.value)">
+        <button class="btn sm" onclick="window._evtCopy()">${esc(T('evt.copy'))}</button>
+      </div>
+      <div id="evt-list">${evtListHTML()}</div>
     </div>
   </div>`
+}
+
+window._evtSev = (v) => { evt.sev = v; render() }
+window._evtProject = (v) => { evt.project = v; render() }
+// Typing only refreshes the list and counter (a full render would drop the
+// caret out of the search box on every keystroke).
+window._evtSearch = (v) => {
+  evt.q = v
+  const list = $('#evt-list'); if (list) list.innerHTML = evtListHTML()
+  const cnt = $('#evt-count'); if (cnt) cnt.textContent = evtCountText()
+}
+window._evtCopy = async () => {
+  const { shown, names } = evtCollect()
+  const text = shown.map(m => `${new Date(m.time * 1000).toLocaleString(locale())}  ${(m.pri || 1) >= 3 ? '[ERROR] ' : (m.pri || 1) === 2 ? '[NOTICE] ' : ''}${names[m.project] ? names[m.project] + ': ' : ''}${m.body}`).join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta); ta.select()
+    try { document.execCommand('copy') } catch (e2) {}
+    ta.remove()
+  }
+  toast(T('evt.copied'), 'ok')
+}
+
+// lastEventFor: a project's newest event-log line, so a project that does
+// nothing shows why right on its card instead of only in another page.
+function lastEventFor(snap, url) {
+  let best = null
+  for (const m of snap.messages || []) {
+    if (m.project !== url) continue
+    if (!best || m.time > best.time || (m.time === best.time && m.seq > best.seq)) best = m
+  }
+  return best
 }
 
 function svgLineChart(data, width, height, color) {
@@ -922,6 +1016,18 @@ function renderSettings() {
     <div class="card">
       <div class="card-head"><h2 class="card-title">${esc(T('set.lang'))}</h2></div>
       <select class="select" id="lang-select" onchange="window._setLang(this.value)" aria-label="${esc(T('set.lang'))}">${languageOptions()}</select>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2 class="card-title">${esc(T('theme.title'))}</h2></div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="row wrap" style="gap:8px">
+          <button class="btn sm ${state.theme === 'light' ? 'primary' : ''}" onclick="window._setThemeMode('light')">☀️ ${esc(T('cmd.lightTheme'))}</button>
+          <button class="btn sm ${state.theme === 'dark' ? 'primary' : ''}" onclick="window._setThemeMode('dark')">🌙 ${esc(T('cmd.darkTheme'))}</button>
+        </div>
+        <div class="theme-grid">
+          ${Object.entries(ACCENTS).map(([id, [a, b]]) => `<button class="theme-swatch ${state.accent === id ? 'sel' : ''}" onclick="window._setAccent('${id}')" aria-pressed="${state.accent === id}"><span class="dot" style="background:linear-gradient(135deg,${a},${b})"></span>${esc(T('theme.' + id))}</button>`).join('')}
+        </div>
+      </div>
     </div>
     ${fleetCard}
     ${prefsCards ? `<div class="section-title"><h2>${esc(T('nav.prefs'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${prefsCards}</div>` : ''}
@@ -1250,6 +1356,32 @@ window._setPage = setPage
 
 window._setLang = async (code) => {
   await setLanguage(code, true)
+  render()
+}
+
+// Colour themes: an accent palette on top of the light/dark choice. Each has
+// a swatch (its two brand colours) and a translated name (theme.<id>).
+const ACCENTS = {
+  violet: ['#7c3aed', '#6366f1'],
+  ocean: ['#0284c7', '#06b6d4'],
+  emerald: ['#059669', '#14b8a6'],
+  rose: ['#e11d48', '#ec4899'],
+  amber: ['#d97706', '#ea580c'],
+  graphite: ['#475569', '#64748b']
+}
+
+window._setAccent = (id) => {
+  if (!ACCENTS[id]) return
+  state.accent = id
+  try { localStorage.setItem('iris-accent', id) } catch (e) {}
+  applyTheme()
+  render()
+}
+
+window._setThemeMode = (mode) => {
+  state.theme = mode
+  try { localStorage.setItem('iris-theme', mode) } catch (e) {}
+  applyTheme()
   render()
 }
 
@@ -1764,7 +1896,10 @@ window._testNotif = () => {
 }
 
 function applyTheme() {
-  document.documentElement.setAttribute('data-theme', state.theme)
+  const root = document.documentElement
+  root.setAttribute('data-theme', state.theme)
+  if (state.accent && state.accent !== 'violet' && ACCENTS[state.accent]) root.setAttribute('data-accent', state.accent)
+  else root.removeAttribute('data-accent')
 }
 
 async function init() {
