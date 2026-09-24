@@ -66,13 +66,14 @@ More: [servers](docs/screenshots/hosts.png), [messages](docs/screenshots/message
 | **Projects** | Attach, detach, suspend/resume, update, allow / stop new work; account lookup by e-mail + password |
 | **Project catalog** | Every project on BOINC's official list plus a few well-known others, searchable, filterable by science area, with a badge showing whether the project has applications for *the server you are attaching to*. Choosing one asks the project's server (`get_project_config.php`, the call the BOINC manager makes) whether it is reachable, whether new accounts can be created from a client, and which platforms it supports. Website and *Create account* links open in your browser |
 | **Transfers** | Live upload/download progress with retry and abort |
-| **Messages** | Severity-highlighted client log across all servers |
+| **Event log** | Every scheduler contact, the project's own answer (e.g. "Invalid or missing account key"), transfers and errors across all servers, newest first and readable in full — filter by severity or project, search, copy for a bug report; each project card also shows its last event |
 | **Statistics** | Per-project credit-history charts, transfer history, per-project disk use |
 | **Preferences** | Global preference overrides on the client, per-host and **fleet-wide** run/network modes, CPU benchmark |
 | **Hardware** | OS, CPU, cores, speed, RAM, disk, and every GPU with its VRAM per host |
 | **AI Assistant** | Optional, off by default. Chat in your own language to ask about the fleet or tell it what to do; see [AI Assistant](#ai-assistant) below |
 | **Notifications** | Desktop alerts for approaching deadlines, task errors and offline hosts; tray menu (Windows, Linux) with refresh / hide / show / quit |
 | **Languages** | English, Türkçe, Deutsch, Français, Español, Italiano, Português, Русский, 日本語 — every string translated; follows the system language and can be changed in Settings; the tray menu and notifications follow it |
+| **Themes** | Light or dark, in six colour themes (Violet, Ocean, Emerald, Rose, Amber, Graphite) — pick one in Settings |
 | **Local client** | The bundled `irisd` is detected, added as *Local Iris* and started for you (unless you stopped it) |
 
 ### Client (`irisd`)

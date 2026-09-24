@@ -83,3 +83,26 @@ func TestBuildDigestSurfacesTheMostRecentHighPriorityMessage(t *testing.T) {
 		t.Errorf("digest should surface the demo host's error-priority message:\n%s", digest)
 	}
 }
+
+func TestLastEventForShowsTheProjectsLatestNoticeOrError(t *testing.T) {
+	msgs := []app.MsgLine{
+		{Seq: 1, Pri: 3, Project: "https://p.example/", Body: "Error in request message: no end tag"},
+		{Seq: 2, Pri: 3, Project: "https://other.example/", Body: "about another project"},
+		{Seq: 3, Pri: 3, Project: "https://p.example/", Body: "Invalid or missing account key.  To fix, detach and reattach"},
+	}
+	if got := lastEventFor(msgs, "https://p.example/"); !strings.HasPrefix(got, "Invalid or missing account key") {
+		t.Errorf("lastEventFor = %q, want the project's newest error", got)
+	}
+	if got := lastEventFor(msgs, "https://nobody.example/"); got != "" {
+		t.Errorf("a project with no events must give nothing, got %q", got)
+	}
+}
+
+// Routine "Contacted ..." lines would burn the scarce (2000 character)
+// request budget on every project, every turn, for no information.
+func TestLastEventForSkipsRoutineInfoLines(t *testing.T) {
+	msgs := []app.MsgLine{{Seq: 1, Pri: 1, Project: "https://p.example/", Body: "Contacted https://p.example/: 0 new task(s)"}}
+	if got := lastEventFor(msgs, "https://p.example/"); got != "" {
+		t.Errorf("routine info must not be included, got %q", got)
+	}
+}

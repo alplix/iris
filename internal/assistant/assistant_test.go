@@ -353,3 +353,22 @@ func TestHistoryPersistsAcrossTurnsAndIsSentBack(t *testing.T) {
 		t.Fatal("the previous assistant reply should be resent as history")
 	}
 }
+
+// TestInstructionsAskForADirectAnswerAndNeverInviteAnEcho guards a real
+// failure: told "Otherwise, reply normally in plain text", the model answered
+// "Normal bir şekilde cevap vereceğim" (I will reply normally) to a question
+// instead of answering it — it took the rule as something to say back.
+func TestInstructionsAskForADirectAnswerAndNeverInviteAnEcho(t *testing.T) {
+	ins := actionInstructions("Turkish")
+	if !strings.Contains(ins, "Answer the user's message directly") {
+		t.Errorf("instructions must tell the model to answer directly:\n%s", ins)
+	}
+	for _, bad := range []string{"reply normally", "Otherwise,"} {
+		if strings.Contains(ins, bad) {
+			t.Errorf("instructions must not contain %q — the model echoes it back instead of answering", bad)
+		}
+	}
+	if !strings.Contains(wrapUserMessage("DIGEST", "hello", "Turkish"), "\nUser message: hello") {
+		t.Error("the user's own message must come last, clearly labelled")
+	}
+}

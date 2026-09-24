@@ -134,21 +134,22 @@ func NewMock(cfg HostCfg) *Mock {
 	}
 	now := time.Now()
 	baseMsgs := []struct {
-		pri  int
-		body string
+		pri     int
+		body    string
+		project string
 	}{
-		{2, "Scheduler request to einsteinathome.org succeeded"},
-		{1, "Running GPU tasks may slow down the display"},
-		{3, "Computation for task brca_hydrogen_88 failed"},
-		{2, "Work fetch: new work added to project PrimeGrid"},
-		{1, "Benchmark results: 4650.12 double precision MIPS"},
+		{2, "Scheduler request to einsteinathome.org succeeded", "https://einsteinathome.org"},
+		{1, "Running GPU tasks may slow down the display", ""},
+		{3, "Computation for task brca_hydrogen_88 failed", ""},
+		{2, "Work fetch: new work added to project PrimeGrid", "https://www.primegrid.org"},
+		{1, "Benchmark results: 4650.12 double precision MIPS", ""},
 	}
 	for i := len(baseMsgs) - 1; i >= 0; i-- {
 		m.seq++
 		m.msgs = append(m.msgs, boinc.Msg{
 			Seqno: boinc.Num(m.seq), Pri: boinc.Num(baseMsgs[i].pri),
 			Time: boinc.Num(now.Add(-time.Duration(i*7) * time.Minute).Unix()),
-			Body: baseMsgs[i].body,
+			Body: baseMsgs[i].body, Project: baseMsgs[i].project,
 		})
 	}
 	m.lastMsgSeq = m.seq
