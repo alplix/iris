@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alplix/iris/internal/detect"
 	"github.com/alplix/iris/internal/product"
 )
 
@@ -25,10 +26,13 @@ type State struct {
 	Stats        []DayStats `xml:"statistics>day"`
 
 	OpenCLGpuProps []OpenCLProp `xml:"opencl_gpu_prop"`
-	Credits        []CreditDay  `xml:"credit_history>day"`
-	Xfers          []DayXfer    `xml:"daily_xfers>dx"`
-	TaskDays       []TaskDay    `xml:"task_history>day"`
-	Energy         []EnergyDay  `xml:"energy_history>day"`
+	// OpenCLDevs is what the OpenCL driver reported at start-up (not saved;
+	// it is probed again on every start).
+	OpenCLDevs []detect.OpenCLDevice `xml:"-"`
+	Credits    []CreditDay           `xml:"credit_history>day"`
+	Xfers      []DayXfer             `xml:"daily_xfers>dx"`
+	TaskDays   []TaskDay             `xml:"task_history>day"`
+	Energy     []EnergyDay           `xml:"energy_history>day"`
 
 	mu      sync.RWMutex
 	stateFP string

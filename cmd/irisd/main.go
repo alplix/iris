@@ -46,6 +46,9 @@ func guiRPCPort() int {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case detect.ProbeArg:
+			os.Stdout.Write(detect.ProbeOpenCL())
+			return
 		case "--version", "-v":
 			fmt.Println(banner())
 			return
@@ -166,6 +169,9 @@ func runDaemon() {
 		fmt.Printf("Re-queued %d task(s) that had only failed to download\n", n)
 	}
 	st.HostInfo, st.OpenCLGpuProps = detectHostInfo()
+	if exe, err := os.Executable(); err == nil {
+		st.OpenCLDevs = detect.OpenCLViaProbe(exe)
+	}
 	st.HostInfo.HostCPID = loadOrCreateHostCPID(dataDir)
 	st.PlatformName = scheduler.Platform()
 
@@ -801,8 +807,20 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 		AtiCount: int(hi.Coprocs.AtiDevCount), AtiName: atiName,
 		NvidiaCCMajor: int(hi.Coprocs.NvidiaCCMajor), NvidiaCCMinor: int(hi.Coprocs.NvidiaCCMinor),
 		CudaVersion: int(hi.Coprocs.CudaVersion), NvidiaDriver: hi.Coprocs.NvidiaDriverVersion,
+		NvidiaCL: firstCL(a.s.OpenCLDevs, "nvidia"), AtiCL: firstCL(a.s.OpenCLDevs, "amd"),
 		NvidiaMem: vramFor(a.s.OpenCLGpuProps, nvidiaName), AtiMem: vramFor(a.s.OpenCLGpuProps, atiName),
 	}
+}
+
+// firstCL returns the first OpenCL device of a vendor kind, or nil.
+func firstCL(devs []detect.OpenCLDevice, kind string) *detect.OpenCLDevice {
+	for i := range devs {
+		if devs[i].Kind() == kind {
+			d := devs[i]
+			return &d
+		}
+	}
+	return nil
 }
 
 // vramFor finds the video memory (bytes) OpenCL reported for a device name.

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"bytes"
+	"encoding/xml"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alplix/iris/internal/detect"
 	"github.com/alplix/iris/internal/product"
 )
 
@@ -713,5 +715,28 @@ func TestRequestCarriesTheProductName(t *testing.T) {
 	e.doRPC(&ProjectState{URL: srv.URL})
 	if !strings.Contains(body, "\n  <product_name>athena.org.tr</product_name>\n") {
 		t.Errorf("host_info should carry product_name on its own line:\n%s", body)
+	}
+}
+
+func TestOpenCLDescriptionIsSentAndHaveOpenCLFollowsIt(t *testing.T) {
+	cl := &detect.OpenCLDevice{Name: "NVIDIA GeForce RTX 5070 Ti", Vendor: "NVIDIA Corporation", Available: true, GlobalMem: 17066033152,
+		MaxComputeUnits: 70, MaxClockMHz: 2542, NvCCMajor: 12, DeviceVersion: "OpenCL 3.0 CUDA", PlatformVersion: "OpenCL 3.0 CUDA 13.4.89", DriverVersion: "616.92"}
+	c := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "GeForce X", NvidiaCL: cl}, 0)
+	if c.CUDA.HaveOpenCL != 1 || c.CUDA.OpenCL == nil || c.CUDA.OpenCL.DeviceVersion != "OpenCL 3.0 CUDA" {
+		t.Fatalf("the OpenCL block must be sent: %+v", c.CUDA)
+	}
+	if c.CUDA.Major != 12 || c.CUDA.MultiProcessorCount != 70 || c.CUDA.ClockRate != 2542000 || c.CUDA.TotalGlobalMem != 17066033152 {
+		t.Errorf("gaps must be filled from OpenCL: %+v", c.CUDA)
+	}
+	out, _ := xml.MarshalIndent(c, "", " ")
+	for _, want := range []string{"<coproc_opencl>", "<opencl_device_version>OpenCL 3.0 CUDA</opencl_device_version>", "<max_compute_units>70</max_compute_units>", "<nv_compute_capability_major>12</nv_compute_capability_major>"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("request lacks %s:\n%s", want, out)
+		}
+	}
+	// Without a driver report Iris must not claim OpenCL.
+	none := buildCoprocsXML(HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "GeForce X"}, 0)
+	if none.CUDA.HaveOpenCL != 0 || none.CUDA.OpenCL != nil {
+		t.Errorf("no OpenCL report means no OpenCL claim: %+v", none.CUDA)
 	}
 }

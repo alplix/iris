@@ -159,6 +159,36 @@ type CoprocCudaXML struct {
 	DrvVersion   int     `xml:"drvVersion,omitempty"`
 	ReqSecs      float64 `xml:"req_secs"`
 	ReqInstances float64 `xml:"req_instances"`
+	// What the server needs to size the card itself.
+	MultiProcessorCount int              `xml:"multiProcessorCount,omitempty"`
+	ClockRate           int              `xml:"clockRate,omitempty"`
+	OpenCL              *CoprocOpenCLXML `xml:"coproc_opencl"`
+}
+
+// CoprocOpenCLXML is a GPU's OpenCL description, as the reference client writes it.
+type CoprocOpenCLXML struct {
+	Name              string `xml:"name"`
+	Vendor            string `xml:"vendor"`
+	VendorID          uint64 `xml:"vendor_id"`
+	Available         int    `xml:"available"`
+	HalfFP            uint64 `xml:"half_fp_config"`
+	SingleFP          uint64 `xml:"single_fp_config"`
+	DoubleFP          uint64 `xml:"double_fp_config"`
+	EndianLittle      int    `xml:"endian_little"`
+	ExecCaps          uint64 `xml:"execution_capabilities"`
+	Extensions        string `xml:"extensions"`
+	GlobalMem         uint64 `xml:"global_mem_size"`
+	LocalMem          uint64 `xml:"local_mem_size"`
+	MaxClock          uint64 `xml:"max_clock_frequency"`
+	MaxCUs            uint64 `xml:"max_compute_units"`
+	NvCCMajor         uint64 `xml:"nv_compute_capability_major"`
+	NvCCMinor         uint64 `xml:"nv_compute_capability_minor"`
+	AmdSimdPerCU      uint64 `xml:"amd_simd_per_compute_unit"`
+	AmdSimdWidth      uint64 `xml:"amd_simd_width"`
+	AmdSimdInstrWidth uint64 `xml:"amd_simd_instruction_width"`
+	PlatformVersion   string `xml:"opencl_platform_version"`
+	DeviceVersion     string `xml:"opencl_device_version"`
+	DriverVersion     string `xml:"opencl_driver_version"`
 }
 
 // CoprocAtiXML is the AMD/ATI equivalent of CoprocCudaXML. HaveCAL is left
@@ -174,9 +204,10 @@ type CoprocAtiXML struct {
 	PeakFlops  float64  `xml:"peak_flops,omitempty"`
 	// LocalRAM is the video memory in megabytes (the reference client writes
 	// this one in MB, unlike CUDA's bytes).
-	LocalRAM     float64 `xml:"localRAM,omitempty"`
-	ReqSecs      float64 `xml:"req_secs"`
-	ReqInstances float64 `xml:"req_instances"`
+	LocalRAM     float64          `xml:"localRAM,omitempty"`
+	ReqSecs      float64          `xml:"req_secs"`
+	ReqInstances float64          `xml:"req_instances"`
+	OpenCL       *CoprocOpenCLXML `xml:"coproc_opencl"`
 }
 
 // ResultXML is one finished task as the reference client reports it
