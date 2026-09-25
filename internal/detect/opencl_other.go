@@ -2,7 +2,6 @@
 
 package detect
 
-// openCLDevices is only implemented for Windows (which loads OpenCL.dll
-// directly). Elsewhere Iris has no way to call the OpenCL driver without cgo,
-// so no OpenCL device is claimed.
-func openCLDevices() []OpenCLDevice { return nil }
+// openCLDevices asks the clinfo tool (Iris cannot load the OpenCL library itself
+// without cgo); no clinfo installed means no OpenCL device is claimed.
+func openCLDevices() []OpenCLDevice { return clinfoDevices() }

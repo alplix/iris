@@ -1,6 +1,10 @@
 package detect
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestParseProbeOutputAndKind(t *testing.T) {
 	devs := ParseProbeOutput([]byte(`[{"name":"NVIDIA GeForce RTX 5070 Ti","vendor":"NVIDIA Corporation","globalMem":17094934528,"deviceVersion":"OpenCL 3.0 CUDA","nvCcMajor":12},{"name":"","vendor":"x"}]`))
@@ -29,5 +33,30 @@ func TestProbeOpenCLDoesNotCrash(t *testing.T) {
 				t.Errorf("a listed device needs a name: %+v", d)
 			}
 		}
+	}
+}
+
+// Real `clinfo --raw` output from an Apple M1 (macOS).
+func TestParseClinfoRawFromARealMac(t *testing.T) {
+	b, err := os.ReadFile("testdata/clinfo_macos_m1.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	devs := parseClinfoRaw(string(b))
+	if len(devs) != 1 {
+		t.Fatalf("want the one GPU, got %d: %+v", len(devs), devs)
+	}
+	d := devs[0]
+	if d.Name != "Apple M1" || d.Vendor != "Apple" || d.VendorID != 0x1027f00 || !d.Available || d.MaxComputeUnits != 8 ||
+		d.GlobalMem != 5726633984 || d.MaxClockMHz != 1000 || d.LocalMem != 32768 || !d.EndianLittle || d.ExecutionCaps != 1 ||
+		d.DeviceVersion != "OpenCL 1.2" || d.DriverVersion != "1.2 1.0" || !strings.HasPrefix(d.PlatformVersion, "OpenCL 1.2") {
+		t.Errorf("parsed wrongly: %+v", d)
+	}
+	// INF_NAN | ROUND_TO_NEAREST | ROUND_TO_ZERO | ROUND_TO_INF | FMA | CORRECTLY_ROUNDED_DIVIDE_SQRT
+	if d.SingleFPConfig != 2+4+8+16+32+128 {
+		t.Errorf("fp config bits wrong: %d", d.SingleFPConfig)
+	}
+	if parseClinfoRaw("") != nil || parseClinfoRaw("garbage") != nil {
+		t.Error("no clinfo output means no devices")
 	}
 }

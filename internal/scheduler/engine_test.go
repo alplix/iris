@@ -740,3 +740,41 @@ func TestOpenCLDescriptionIsSentAndHaveOpenCLFollowsIt(t *testing.T) {
 		t.Errorf("no OpenCL report means no OpenCL claim: %+v", none.CUDA)
 	}
 }
+
+func TestIntelGPUAndVirtualizationAreReported(t *testing.T) {
+	cl := &detect.OpenCLDevice{Name: "Intel(R) UHD Graphics 770", Vendor: "Intel(R) Corporation", GlobalMem: 6 << 30, DeviceVersion: "OpenCL 3.0 NEO"}
+	c := buildCoprocsXML(HostInfoSnapshot{IntelCount: 1, IntelName: "Intel(R) UHD Graphics 770", IntelCL: cl}, 0)
+	if c == nil || c.Intel == nil || c.Intel.HaveOpenCL != 1 || c.Intel.OpenCL == nil || c.Intel.ReqInstances != 1 {
+		t.Fatalf("an Intel-only host must offer its iGPU and ask for work: %+v", c)
+	}
+	if c.CUDA != nil || c.ATI != nil {
+		t.Error("only the GPUs that exist may be listed")
+	}
+	out, _ := xml.MarshalIndent(c, "", " ")
+	if !strings.Contains(string(out), "<coproc_intel_gpu>") {
+		t.Errorf("wrong element name:\n%s", out)
+	}
+
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "P"})
+	fs.hostInfo = HostInfoSnapshot{VirtualBoxVersion: "7.0.14", DockerVersion: "24.0.7"}
+	on := true
+	e := NewEngine(fs, fakeCache{}, EngineConfig{RealAppsEnabledFn: func() bool { return on }})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	for _, want := range []string{"<virtualbox_version>7.0.14</virtualbox_version>", "<docker_version>24.0.7</docker_version>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("request lacks %s:\n%s", want, body)
+		}
+	}
+	on = false
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if strings.Contains(body, "virtualbox_version") || strings.Contains(body, "docker_version") {
+		t.Errorf("with real applications off no VM/container support may be claimed:\n%s", body)
+	}
+}

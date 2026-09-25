@@ -1,0 +1,79 @@
+#PLATFORMS                                        1
+  CL_PLATFORM_NAME                                Apple
+  CL_PLATFORM_VENDOR                              Apple
+  CL_PLATFORM_VERSION                             OpenCL 1.2 (Aug  8 2026 15:27:26)
+  CL_PLATFORM_PROFILE                             FULL_PROFILE
+  CL_PLATFORM_EXTENSIONS                          cl_APPLE_SetMemObjectDestructor cl_APPLE_ContextLoggingFunctions cl_APPLE_clut cl_APPLE_query_kernel_names cl_APPLE_gl_sharing cl_khr_gl_event
+
+[P0/*]    CL_PLATFORM_NAME                                Apple
+[P0/*]  #DEVICES                                          1
+[P0/0]    CL_DEVICE_NAME                                  Apple M1
+[P0/0]    CL_DEVICE_VENDOR                                Apple
+[P0/0]    CL_DEVICE_VENDOR_ID                             0x1027f00
+[P0/0]    CL_DEVICE_VERSION                               OpenCL 1.2 
+[P0/0]    CL_DRIVER_VERSION                               1.2 1.0
+[P0/0]    CL_DEVICE_OPENCL_C_VERSION                      OpenCL C 1.2 
+[P0/0]    CL_DEVICE_TYPE                                  CL_DEVICE_TYPE_GPU
+[P0/0]    CL_DEVICE_PROFILE                               FULL_PROFILE
+[P0/0]    CL_DEVICE_AVAILABLE                             CL_TRUE
+[P0/0]    CL_DEVICE_COMPILER_AVAILABLE                    CL_TRUE
+[P0/0]    CL_DEVICE_LINKER_AVAILABLE                      CL_TRUE
+[P0/0]    CL_DEVICE_MAX_COMPUTE_UNITS                     8
+[P0/0]    CL_DEVICE_MAX_CLOCK_FREQUENCY                   1000
+[P0/0]    CL_DEVICE_PARTITION_MAX_SUB_DEVICES             0
+[P0/0]    CL_DEVICE_PARTITION_PROPERTIES                  CL_NONE
+[P0/0]    CL_DEVICE_PARTITION_AFFINITY_DOMAIN             
+[P0/0]    CL_DEVICE_MAX_WORK_ITEM_DIMENSIONS              3
+[P0/0]    CL_DEVICE_MAX_WORK_ITEM_SIZES                   256 256 256
+[P0/0]    CL_DEVICE_MAX_WORK_GROUP_SIZE                   256
+[P0/0]    CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE    32
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_CHAR           1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_CHAR              1
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_SHORT          1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_SHORT             1
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_INT            1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_INT               1
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_LONG           1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_LONG              1
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_HALF           0
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_HALF              0
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_FLOAT          1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_FLOAT             1
+[P0/0]    CL_DEVICE_PREFERRED_VECTOR_WIDTH_DOUBLE         1
+[P0/0]    CL_DEVICE_NATIVE_VECTOR_WIDTH_DOUBLE            1
+[P0/0]    CL_DEVICE_SINGLE_FP_CONFIG                      CL_FP_INF_NAN | CL_FP_ROUND_TO_NEAREST | CL_FP_ROUND_TO_ZERO | CL_FP_ROUND_TO_INF | CL_FP_FMA | CL_FP_CORRECTLY_ROUNDED_DIVIDE_SQRT
+[P0/0]    CL_DEVICE_ADDRESS_BITS                          64
+[P0/0]    CL_DEVICE_ENDIAN_LITTLE                         CL_TRUE
+[P0/0]    CL_DEVICE_GLOBAL_MEM_SIZE                       5726633984
+[P0/0]    CL_DEVICE_ERROR_CORRECTION_SUPPORT              CL_FALSE
+[P0/0]    CL_DEVICE_MAX_MEM_ALLOC_SIZE                    1073741824
+[P0/0]    CL_DEVICE_HOST_UNIFIED_MEMORY                   CL_TRUE
+[P0/0]    CL_DEVICE_MIN_DATA_TYPE_ALIGN_SIZE              1
+[P0/0]    CL_DEVICE_MEM_BASE_ADDR_ALIGN                   32768
+[P0/0]    CL_DEVICE_GLOBAL_MEM_CACHE_TYPE                 CL_NONE
+[P0/0]    CL_DEVICE_IMAGE_SUPPORT                         CL_TRUE
+[P0/0]    CL_DEVICE_MAX_SAMPLERS                          32
+[P0/0]    CL_DEVICE_IMAGE_MAX_BUFFER_SIZE                 268435456
+[P0/0]    CL_DEVICE_IMAGE_MAX_ARRAY_SIZE                  2048
+[P0/0]    CL_DEVICE_IMAGE_BASE_ADDRESS_ALIGNMENT          256
+[P0/0]    CL_DEVICE_IMAGE_PITCH_ALIGNMENT                 256
+[P0/0]    CL_DEVICE_IMAGE2D_MAX_HEIGHT                    16384
+[P0/0]    CL_DEVICE_IMAGE2D_MAX_WIDTH                     16384
+[P0/0]    CL_DEVICE_IMAGE3D_MAX_HEIGHT                    2048
+[P0/0]    CL_DEVICE_IMAGE3D_MAX_WIDTH                     2048
+[P0/0]    CL_DEVICE_IMAGE3D_MAX_DEPTH                     2048
+[P0/0]    CL_DEVICE_MAX_READ_IMAGE_ARGS                   128
+[P0/0]    CL_DEVICE_MAX_WRITE_IMAGE_ARGS                  8
+[P0/0]    CL_DEVICE_LOCAL_MEM_TYPE                        CL_LOCAL
+[P0/0]    CL_DEVICE_LOCAL_MEM_SIZE                        32768
+[P0/0]    CL_DEVICE_MAX_CONSTANT_ARGS                     31
+[P0/0]    CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE              1073741824
+[P0/0]    CL_DEVICE_MAX_PARAMETER_SIZE                    4096
+[P0/0]    CL_DEVICE_QUEUE_PROPERTIES                      CL_QUEUE_PROFILING_ENABLE
+[P0/0]    CL_DEVICE_PREFERRED_INTEROP_USER_SYNC           CL_TRUE
+[P0/0]    CL_DEVICE_PROFILING_TIMER_RESOLUTION            1000
+[P0/0]    CL_DEVICE_EXECUTION_CAPABILITIES                CL_EXEC_KERNEL
+[P0/0]    CL_DEVICE_PRINTF_BUFFER_SIZE                    1048576
+[P0/0]    CL_DEVICE_BUILT_IN_KERNELS                      
+[P0/0]    CL_DEVICE_EXTENSIONS                            cl_APPLE_SetMemObjectDestructor cl_APPLE_ContextLoggingFunctions cl_APPLE_clut cl_APPLE_query_kernel_names cl_APPLE_gl_sharing cl_khr_gl_event cl_khr_byte_addressable_store cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_3d_image_writes cl_khr_image2d_from_buffer cl_khr_depth_images 
+
