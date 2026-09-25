@@ -101,7 +101,9 @@ func uploadTo(ctx context.Context, target string, u ResultUpload, size int64, su
 	// 1. how much does the server already have?
 	query := "<data_server_request>\n" + versionTags(clientVersion) +
 		"    <get_file_size>" + u.Name + "</get_file_size>\n</data_server_request>\n"
-	body, err := postText(ctx, target, strings.NewReader(query), int64(len(query)), nil)
+	body, err := postText(ctx, target, func() (io.Reader, int64, error) {
+		return strings.NewReader(query), int64(len(query)), nil
+	})
 	if err != nil {
 		return err
 	}
@@ -151,9 +153,14 @@ func uploadTo(ctx context.Context, target string, u ResultUpload, size int64, su
 	defer cancel()
 	stall := time.AfterFunc(stallTimeout, cancel)
 	defer stall.Stop()
-	ir := &idleReader{r: f, done: offset, total: size, progress: progress, timer: stall}
-	reader := io.MultiReader(strings.NewReader(head), ir)
-	reply, err := postText(ctx2, target, reader, int64(len(head))+size-offset, nil)
+	reply, err := postText(ctx2, target, func() (io.Reader, int64, error) {
+		// Called again if the server redirects: start over from the offset.
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			return nil, 0, err
+		}
+		ir := &idleReader{r: f, done: offset, total: size, progress: progress, timer: stall}
+		return io.MultiReader(strings.NewReader(head), ir), int64(len(head)) + size - offset, nil
+	})
 	if err != nil {
 		return err
 	}
@@ -182,14 +189,8 @@ func snippet(b []byte) string {
 	return s
 }
 
-func postText(ctx context.Context, target string, body io.Reader, length int64, _ http.Header) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
-	if err != nil {
-		return nil, &UploadError{Msg: fmt.Sprintf("upload address %q: %v", target, err), Permanent: true}
-	}
-	req.Header.Set("Content-Type", "text/xml")
-	req.ContentLength = length
-	resp, err := transferClient.Do(req)
+func postText(ctx context.Context, target string, body func() (io.Reader, int64, error)) ([]byte, error) {
+	resp, err := postFollow(ctx, transferClient, target, "text/xml", body)
 	if err != nil {
 		return nil, &UploadError{Msg: "upload to " + target + ": " + err.Error()}
 	}
