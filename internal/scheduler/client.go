@@ -135,6 +135,7 @@ type CoprocsXML struct {
 	CUDA    *CoprocCudaXML  `xml:"coproc_cuda"`
 	ATI     *CoprocAtiXML   `xml:"coproc_ati"`
 	Intel   *CoprocIntelXML `xml:"coproc_intel_gpu"`
+	Apple   *CoprocAppleXML `xml:"coproc_apple_gpu"`
 }
 
 // CoprocCudaXML advertises the host's NVIDIA GPU(s) as one aggregate entry
@@ -208,6 +209,20 @@ type CoprocAtiXML struct {
 	// LocalRAM is the video memory in megabytes (the reference client writes
 	// this one in MB, unlike CUDA's bytes).
 	LocalRAM     float64          `xml:"localRAM,omitempty"`
+	ReqSecs      float64          `xml:"req_secs"`
+	ReqInstances float64          `xml:"req_instances"`
+	OpenCL       *CoprocOpenCLXML `xml:"coproc_opencl"`
+}
+
+// CoprocAppleXML is an Apple-silicon GPU (COPROC_APPLE::write_xml).
+type CoprocAppleXML struct {
+	Count        int              `xml:"count"`
+	Model        string           `xml:"model"`
+	AvailableRAM float64          `xml:"available_ram"`
+	HaveMetal    int              `xml:"have_metal"`
+	HaveOpenCL   int              `xml:"have_opencl"`
+	NCores       int              `xml:"ncores"`
+	MetalSupport int              `xml:"metal_support"`
 	ReqSecs      float64          `xml:"req_secs"`
 	ReqInstances float64          `xml:"req_instances"`
 	OpenCL       *CoprocOpenCLXML `xml:"coproc_opencl"`

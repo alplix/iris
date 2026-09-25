@@ -778,3 +778,22 @@ func TestIntelGPUAndVirtualizationAreReported(t *testing.T) {
 		t.Errorf("with real applications off no VM/container support may be claimed:\n%s", body)
 	}
 }
+
+func TestAppleSiliconGPUIsOffered(t *testing.T) {
+	cl := &detect.OpenCLDevice{Name: "Apple M1", Vendor: "Apple", GlobalMem: 5726633984, DeviceVersion: "OpenCL 1.2"}
+	c := buildCoprocsXML(HostInfoSnapshot{AppleCount: 1, AppleModel: "Apple M1", AppleCores: 7, AppleMetal: 4, AppleCL: cl}, 0)
+	if c == nil || c.Apple == nil || c.Apple.NCores != 7 || c.Apple.MetalSupport != 4 || c.Apple.HaveMetal != 1 || c.Apple.HaveOpenCL != 1 || c.Apple.ReqInstances != 1 {
+		t.Fatalf("an Apple-silicon Mac must offer its GPU and ask for work: %+v", c)
+	}
+	out, _ := xml.MarshalIndent(c, "", " ")
+	for _, want := range []string{"<coproc_apple_gpu>", "<model>Apple M1</model>", "<ncores>7</ncores>", "<metal_support>4</metal_support>", "<have_metal>1</have_metal>"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("request lacks %s:\n%s", want, out)
+		}
+	}
+	// No OpenCL report: Metal is still claimed, OpenCL is not.
+	no := buildCoprocsXML(HostInfoSnapshot{AppleCount: 1, AppleModel: "Apple M1", AppleCores: 7, AppleMetal: 4}, 0)
+	if no.Apple.HaveOpenCL != 0 || no.Apple.OpenCL != nil || no.Apple.HaveMetal != 1 {
+		t.Errorf("wrong claims: %+v", no.Apple)
+	}
+}
