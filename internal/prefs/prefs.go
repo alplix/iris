@@ -156,6 +156,10 @@ func (s *Store) Float(key string) (float64, bool) {
 // other preference already does.
 const RealAppsKey = "real_apps_enabled"
 
+// NoGPUKey, when true, keeps the client from requesting or starting GPU work
+// (an energy/carbon-saving switch in Global Preferences).
+const NoGPUKey = "no_gpu"
+
 // Bool returns whether key is set to a truthy value ("1", "true", "yes").
 func (s *Store) Bool(key string) bool {
 	s.mu.RLock()

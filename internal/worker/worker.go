@@ -66,6 +66,10 @@ type Config struct {
 	// defaults to off (nil or a func returning false) until the person
 	// explicitly opts in from Settings.
 	RealAppsEnabledFn func() bool
+
+	// GPUEnabledFn, when set and returning false, stops new GPU tasks from
+	// starting (tasks already running finish).
+	GPUEnabledFn func() bool
 }
 
 type StateAccessor interface {
@@ -355,6 +359,9 @@ func (e *Engine) runCycle() {
 	for _, r := range results {
 		if r.State != StateNew || r.Suspended != 0 {
 			continue
+		}
+		if r.GPU && e.cfg.GPUEnabledFn != nil && !e.cfg.GPUEnabledFn() {
+			continue // GPU use is switched off in the preferences
 		}
 		if e.cache.Full(r.GPU) {
 			e.warnCacheFull(r.GPU)

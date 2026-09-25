@@ -79,3 +79,23 @@ func TestFullGPUCacheStopsGPUWorkButNotCPUWork(t *testing.T) {
 		t.Fatal("GPU work should start once its cache has room")
 	}
 }
+
+func TestSwitchedOffGPUStopsGPUTasksButNotCPUTasks(t *testing.T) {
+	st := &fakeState{touched: map[string]bool{}, results: []ResultSnapshot{
+		{Name: "gpu-task", GPU: true, State: StateNew},
+		{Name: "cpu-task", GPU: false, State: StateNew},
+	}}
+	e := NewEngine(st, fakeCache{}, nil, nil, nil, Config{MaxConcurrent: 4, GPUEnabledFn: func() bool { return false }})
+	e.runCycle()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !st.started("cpu-task") {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !st.started("cpu-task") {
+		t.Error("CPU work must still run")
+	}
+	if st.started("gpu-task") {
+		t.Error("GPU work must not start while GPU use is switched off")
+	}
+}

@@ -35,6 +35,9 @@ type EngineConfig struct {
 	// HostNameFn, when set and non-empty, is the computer name reported to
 	// projects instead of the machine's own (a Settings choice).
 	HostNameFn func() string
+	// GPUEnabledFn, when set and returning false, hides the GPUs from the
+	// project so it offers no GPU work.
+	GPUEnabledFn func() bool
 }
 
 type ProjectState struct {
@@ -413,6 +416,9 @@ func (e *Engine) doRPC(ps *ProjectState) {
 	cli.SetSchedulerURL(e.schedulerURLFor(ps, cli))
 
 	hostInfo := e.state.GetHostInfo()
+	if e.cfg.GPUEnabledFn != nil && !e.cfg.GPUEnabledFn() {
+		hostInfo.NvidiaCount, hostInfo.AtiCount = 0, 0
+	}
 	shareFraction := resourceShareFraction(e.state.GetProjects(), ps.URL)
 	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
 

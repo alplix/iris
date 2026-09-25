@@ -217,6 +217,7 @@ func runDaemon() {
 		DataDir:           dataDir,
 		HostCPID:          st.HostInfo.HostCPID,
 		HostNameFn:        func() string { return overrides.Get()["host_name"] },
+		GPUEnabledFn:      func() bool { return !overrides.Bool(prefs.NoGPUKey) },
 	})
 	handler.sched = schedEngine
 	schedEngine.Start()
@@ -228,6 +229,7 @@ func runDaemon() {
 		DataDir:           dataDir,
 		UserAgent:         product.UserAgent(),
 		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
+		GPUEnabledFn:      func() bool { return !overrides.Bool(prefs.NoGPUKey) },
 	})
 	workerEngine.Start()
 	energyStop := make(chan struct{})
