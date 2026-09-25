@@ -28,8 +28,10 @@ type Client struct {
 }
 
 type Request struct {
-	XMLName       xml.Name `xml:"scheduler_request"`
-	Authenticator string   `xml:"authenticator"`
+	// MsgsFromHost are pending trickle-up messages (see trickle.go).
+	MsgsFromHost  []MsgFromHostXML `xml:"msg_from_host"`
+	XMLName       xml.Name         `xml:"scheduler_request"`
+	Authenticator string           `xml:"authenticator"`
 	// HostID is the id the project's server gave this computer (0 on the very
 	// first contact) and RPCSeqno counts contacts. Both must be sent back:
 	// without the host id every request registers a brand-new host on the
@@ -331,6 +333,10 @@ type Reply struct {
 	ResultAcks []ResultAckXML `xml:"result_ack"`
 	// ResultAborts name tasks the server no longer wants computed.
 	ResultAborts []ResultAckXML `xml:"result_abort"`
+	// TrickleDowns are messages for running tasks; MessageAck confirms the
+	// trickle-ups of this request were received.
+	TrickleDowns []TrickleDownXML `xml:"trickle_down"`
+	MessageAck   *struct{}        `xml:"message_ack"`
 	// AppVersions describes the real, project-specific executables the
 	// scheduler is offering for the platforms/plan classes this host asked
 	// about. A ReplyResult only carries enough (app_version_num, plan_class)

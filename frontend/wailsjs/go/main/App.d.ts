@@ -94,6 +94,8 @@ export function SetLanguage(arg1:string):Promise<void>;
 
 export function SetPrefs(arg1:string,arg2:Array<any>):Promise<void>;
 
+export function SetProjectShare(arg1:string,arg2:string,arg3:number):Promise<void>;
+
 export function StartDaemon():Promise<void>;
 
 export function StopDaemon():Promise<void>;

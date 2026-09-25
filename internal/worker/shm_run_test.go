@@ -26,7 +26,22 @@ func TestShmHelperApp(t *testing.T) {
 	}
 	status := mem[5*1024 : 6*1024]
 	control := mem[0:1024]
+	up := mem[6*1024 : 7*1024]
+	down := mem[7*1024 : 8*1024]
+	sentUp := false
 	for {
+		if !sentUp && up[0] == 0 {
+			os.WriteFile("trickle_up.xml", []byte("<variety>credit</variety>\n<cpu>1</cpu>\n"), 0o644)
+			msg := "<have_new_trickle_up/>\n"
+			copy(up[1:], msg)
+			up[1+len(msg)] = 0
+			up[0] = 1
+			sentUp = true
+		}
+		if down[0] != 0 {
+			down[0] = 0
+			os.WriteFile("got_trickle_down", []byte("1"), 0o644)
+		}
 		if status[0] == 0 {
 			msg := "<current_cpu_time>7.5</current_cpu_time>\n<checkpoint_cpu_time>0</checkpoint_cpu_time>\n<want_network>0</want_network>\n<fraction_done>4.000000e-01</fraction_done>\n"
 			copy(status[1:], msg)
@@ -103,12 +118,13 @@ func TestWorkerTalksToAnApplicationThroughSharedMemory(t *testing.T) {
 	t.Setenv("IRIS_SHM_HELPER", "1")
 	slot := t.TempDir()
 	st := &progState{fakeState: fakeState{touched: map[string]bool{}}}
-	e := NewEngine(st, fakeCache{}, nil, nil, nil, Config{MaxConcurrent: 1, CheckpointSec: 3600})
+	dataDir := t.TempDir()
+	e := NewEngine(st, fakeCache{}, nil, nil, nil, Config{MaxConcurrent: 1, CheckpointSec: 3600, DataDir: dataDir})
 	shm, err := createShmem(slot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := ResultSnapshot{Name: "shm-task", Slot: slot, CmdLine: "-test.run=^TestShmHelperApp$"}
+	r := ResultSnapshot{Name: "shm-task", Slot: slot, ProjectURL: "https://p.example/", CmdLine: "-test.run=^TestShmHelperApp$"}
 	if err := os.WriteFile(filepath.Join(slot, "init_data.xml"), buildInitDataXML(r, "", "data", 60, shm.initTag), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -132,6 +148,21 @@ func TestWorkerTalksToAnApplicationThroughSharedMemory(t *testing.T) {
 	// The 10 s progress tick is the slowest part; the shared-memory poll itself
 	// runs every second, so the CPU time shows first.
 	waitFor("the application's CPU time", func() bool { _, cpu := st.snapshot(); return cpu == 7.5 })
+
+	// Trickle-up: the app's file must land in the project folder under the
+	// name the scheduler side sends it by.
+	waitFor("the trickle-up in the project folder", func() bool {
+		entries, _ := os.ReadDir(filepath.Join(dataDir, "projects", "p.example"))
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "trickle_up_shm-task_") {
+				return true
+			}
+		}
+		return false
+	})
+	// Trickle-down: a file the scheduler side put in the slot must be announced.
+	os.WriteFile(filepath.Join(slot, "trickle_down_7"), []byte("<msg>x</msg>"), 0o644)
+	waitFor("the app to be told of the trickle-down", func() bool { _, err := os.Stat(filepath.Join(slot, "got_trickle_down")); return err == nil })
 
 	st.setSuspended(true)
 	waitFor("a <suspend/> message", func() bool { _, err := os.Stat(filepath.Join(slot, "suspended")); return err == nil })

@@ -496,6 +496,8 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	// The person's own applications (app_info.xml in the project's folder)
 	// replace the project's: say so, and list them.
+	req.MsgsFromHost = readTrickleFiles(projDir)
+
 	ai, aiErr := project.LoadAppInfo(projDir)
 	if aiErr != nil {
 		e.state.AddMessage("Ignoring the app_info.xml of "+ps.URL+": "+aiErr.Error(), ps.URL, 3)
@@ -608,6 +610,23 @@ func (e *Engine) doRPC(ps *ProjectState) {
 			continue
 		}
 		e.handleWork(ps, rr, fileMap, wuMap, reply.AppVersions, ai, projDir)
+	}
+
+	if reply.MessageAck != nil {
+		removeSentTrickles(projDir)
+	}
+	for _, td := range reply.TrickleDowns {
+		slot := ""
+		for _, r := range e.state.GetResults() {
+			if r.Name == td.ResultName {
+				slot = r.Slot
+			}
+		}
+		if err := writeTrickleDown(slot, td); err != nil {
+			log.Printf("[Scheduler] Trickle-down for %s dropped: %v", td.ResultName, err)
+		} else {
+			log.Printf("[Scheduler] Trickle-down for %s stored", td.ResultName)
+		}
 	}
 
 	// Only results the server acknowledged are forgotten; anything else is
