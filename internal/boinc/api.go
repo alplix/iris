@@ -187,6 +187,13 @@ func (c *Client) ProjectOp(url, op string) error {
 	return err
 }
 
+// SetProjectShare is an Iris extension; a stock BOINC client answers with an
+// error, which is reported as such.
+func (c *Client) SetProjectShare(url string, share float64) error {
+	_, err := c.Call(fmt.Sprintf("<set_project_share>\n <project_url>%s</project_url>\n <share>%g</share>\n</set_project_share>", EscapeXML(url), share))
+	return err
+}
+
 func (c *Client) FileTransferOp(name, op string) error {
 	_, err := c.Call(fmt.Sprintf("<file_transfer_op>\n <ft_name>%s</ft_name>\n <operation>%s</operation>\n</file_transfer_op>", EscapeXML(name), op))
 	return err

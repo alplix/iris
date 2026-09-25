@@ -352,3 +352,25 @@ func TestIrisEnergyReplyCarriesTheHistoryAndFigures(t *testing.T) {
 		}
 	}
 }
+
+func TestSetProjectShareStoresTheShare(t *testing.T) {
+	r := newRig(t)
+	r.st.AddProject(state.Project{Name: "P", MasterURL: "https://p.example/", ResourceShare: 100})
+	if err := r.h.SetProjectShare("https://p.example/", 25); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.st.GetProjectByURL("https://p.example/").ResourceShare; got != 25 {
+		t.Errorf("share = %v, want 25", got)
+	}
+	if err := r.h.SetProjectShare("https://nobody.example/", 1); err == nil {
+		t.Error("an unknown project must be an error")
+	}
+	// Over the wire, as the manager sends it.
+	c := r.client(t)
+	if err := c.SetProjectShare("https://p.example/", 40); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.st.GetProjectByURL("https://p.example/").ResourceShare; got != 40 {
+		t.Errorf("share over RPC = %v, want 40", got)
+	}
+}

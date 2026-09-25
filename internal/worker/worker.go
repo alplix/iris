@@ -17,6 +17,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/alplix/iris/internal/project"
 )
 
 type Engine struct {
@@ -948,6 +950,8 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string, shm *shmem) {
 	defer suspendTicker.Stop()
 	// What the application tells us through the shared-memory channel.
 	var appActive, appHaveFrac, pausedViaMsg bool
+	notifiedDown := map[string]bool{}
+	pendingDown := ""
 	var appFrac float64
 	shmTicker := time.NewTicker(time.Second)
 	defer shmTicker.Stop()
@@ -1009,6 +1013,21 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string, shm *shmem) {
 							appFrac, appHaveFrac = math.Min(st.fraction, 1), true
 						}
 					}
+				}
+				if msg, ok := shm.get(chTrickleUp); ok && strings.Contains(msg, "<have_new_trickle_up/>") {
+					if err := e.moveTrickleUp(r); err != nil {
+						log.Printf("[Worker] Trickle-up of %s lost: %v", r.Name, err)
+					} else {
+						log.Printf("[Worker] Trickle-up from %s queued for the project", r.Name)
+					}
+				}
+				// A trickle-down the scheduler stored in the slot: tell the app.
+				if pendingDown == "" {
+					pendingDown = newTrickleDown(r.Slot, notifiedDown)
+				}
+				if pendingDown != "" && shm.send(chTrickleDown, "<have_trickle_down/>") {
+					notifiedDown[pendingDown] = true
+					pendingDown = ""
 				}
 			}
 
@@ -1164,6 +1183,39 @@ func (e *Engine) writeCheckpoint(r ResultSnapshot) {
 // or write outside the task's slot.
 func safeFileName(n string) bool {
 	return n != "" && n != "." && n != ".." && !strings.ContainsAny(n, "/\\\x00")
+}
+
+// moveTrickleUp moves an application's trickle_up.xml into the project folder
+// under the name the scheduler side sends it by (trickle_up_<result>_<time>).
+func (e *Engine) moveTrickleUp(r ResultSnapshot) error {
+	src := filepath.Join(r.Slot, "trickle_up.xml")
+	if !fileExists(src) {
+		return fmt.Errorf("no trickle_up.xml in the slot")
+	}
+	dir := filepath.Join(e.cfg.DataDir, "projects", project.DirName(r.ProjectURL))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	dst := filepath.Join(dir, fmt.Sprintf("trickle_up_%s_%d", r.Name, time.Now().Unix()))
+	if err := os.Rename(src, dst); err != nil {
+		return err
+	}
+	return nil
+}
+
+// newTrickleDown returns one trickle_down_* file in the slot the application
+// has not been told about yet, or "".
+func newTrickleDown(slot string, notified map[string]bool) string {
+	entries, err := os.ReadDir(slot)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if n := e.Name(); strings.HasPrefix(n, "trickle_down_") && !notified[n] {
+			return n
+		}
+	}
+	return ""
 }
 
 // outputPath is where a task wrote one of its output files: under its

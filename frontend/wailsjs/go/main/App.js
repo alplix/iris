@@ -174,6 +174,10 @@ export function SetPrefs(arg1, arg2) {
   return window['go']['main']['App']['SetPrefs'](arg1, arg2);
 }
 
+export function SetProjectShare(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetProjectShare'](arg1, arg2, arg3);
+}
+
 export function StartDaemon() {
   return window['go']['main']['App']['StartDaemon']();
 }

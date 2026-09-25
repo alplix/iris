@@ -543,6 +543,20 @@ func (s *State) SetProjectRPCState(url string, hostID, rpcSeqno int) {
 // project attached with just its URL learns its real name from the
 // scheduler's first reply, and a name the person chose is never overwritten.
 // SetProjectNoMoreWork switches a project's "don't request new tasks" flag.
+// SetProjectShare sets how much of this computer a project gets relative to
+// the others (BOINC's resource share; 100 is the default for every project).
+func (s *State) SetProjectShare(url string, share float64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.Projects {
+		if s.Projects[i].MasterURL == url {
+			s.Projects[i].ResourceShare = share
+			return true
+		}
+	}
+	return false
+}
+
 func (s *State) SetProjectNoMoreWork(url string, on bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

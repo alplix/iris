@@ -610,6 +610,17 @@ func (h *clientHandler) ResultOp(name, op string) error {
 	return nil
 }
 
+// SetProjectShare stores a project's resource share and lets the schedulers
+// know at the next contact.
+func (h *clientHandler) SetProjectShare(url string, share float64) error {
+	if !h.state.SetProjectShare(url, share) {
+		return fmt.Errorf("no project %q", url)
+	}
+	h.state.AddMessage(fmt.Sprintf("Resource share of %s set to %.0f", url, share), url, 1)
+	h.state.Save()
+	return nil
+}
+
 func (h *clientHandler) ProjectOp(url, op string) error {
 	switch op {
 	case "detach":

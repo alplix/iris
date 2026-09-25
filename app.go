@@ -189,6 +189,10 @@ func (a *App) TaskOp(hostID, name, op string) error {
 	return a.mgr.TaskOp(hostID, name, op)
 }
 
+func (a *App) SetProjectShare(hostID, url string, share float64) error {
+	return a.mgr.SetProjectShare(hostID, url, share)
+}
+
 func (a *App) ProjectOp(hostID, url, op string) error {
 	return a.mgr.ProjectOp(hostID, url, op)
 }

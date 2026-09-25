@@ -370,6 +370,18 @@ func (m *Mock) ResultOp(name, op string) error {
 	return fmt.Errorf("task not found")
 }
 
+func (m *Mock) SetProjectShare(url string, share float64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.projects {
+		if p.info.URL == url {
+			p.info.Share = share
+			return nil
+		}
+	}
+	return fmt.Errorf("no project %q", url)
+}
+
 func (m *Mock) ProjectOp(url, op string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

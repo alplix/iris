@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,8 @@ type Handler interface {
 	SetNetworkMode(mode string) error
 	ResultOp(name, op string) error
 	ProjectOp(url, op string) error
+	// SetProjectShare is an Iris extension: the project's resource share.
+	SetProjectShare(url string, share float64) error
 	FileTransferOp(name, op string) error
 	ProjectAttach(url, auth, name string) error
 	RunBenchmarks() error
@@ -246,6 +249,16 @@ func (s *Server) dispatch(sess *session, request string) string {
 	}
 	if strings.HasPrefix(req, "<project_op") {
 		if err := s.handler.ProjectOp(extractTag(req, "project_url"), extractTag(req, "operation")); err != nil {
+			return cxml.WrapError(err.Error())
+		}
+		return cxml.WrapSuccess()
+	}
+	if strings.HasPrefix(req, "<set_project_share") {
+		share, err := strconv.ParseFloat(strings.TrimSpace(extractTag(req, "share")), 64)
+		if err != nil || share < 0 {
+			return cxml.WrapError("share must be a number of 0 or more")
+		}
+		if err := s.handler.SetProjectShare(extractTag(req, "project_url"), share); err != nil {
 			return cxml.WrapError(err.Error())
 		}
 		return cxml.WrapSuccess()

@@ -544,6 +544,11 @@ function renderProjects() {
             <span>${esc(T('ui.userCredit'))}: <b>${fmtCredit(p.userCredit)}</b></span>
             <span>${esc(T('ui.rac'))}: <b>${fmtCredit(p.rac)}</b></span>
           </div>
+          <div class="row faint" style="gap:6px;font-size:12px;align-items:center">
+            <span>${esc(T('proj.share'))}:</span>
+            <input class="input" type="number" min="0" step="1" value="${Number(p.share || 100)}" style="width:72px;padding:2px 6px;font-size:12px" onchange="window._setShare('${hid}','${p.url}',this.value)" title="${jsq(T('proj.shareHint'))}">
+            <span class="faint">${esc(shareLabel(snap, p))}</span>
+          </div>
           ${(() => {
             const ev = lastEventFor(snap, p.url)
             if (!ev) return ''
@@ -1611,6 +1616,25 @@ window._taskOp = async (hostId, name, op) => {
     await api('TaskOp', hostId, name, op)
     const done = { suspend: 'tasks.toastPause', resume: 'tasks.toastResume', abort: 'tasks.toastAbort' }
     toast(T(done[op] || 'set.saved'), 'ok')
+    await refreshHosts()
+  } catch (e) {
+    toast(e.message || T('ui.opFailed'), 'err')
+  }
+}
+
+// shareLabel: what this project's share means as a fraction of the host.
+function shareLabel(snap, p) {
+  const total = (snap?.projects || []).reduce((a, q) => a + (Number(q.share) || 100), 0)
+  const own = Number(p.share) || 100
+  return total > 0 ? Math.round((own / total) * 100) + '%' : ''
+}
+
+window._setShare = async (hostId, url, value) => {
+  const share = Number(value)
+  if (!(share >= 0)) { toast(T('proj.shareBad'), 'err'); return }
+  try {
+    await api('SetProjectShare', hostId, url, share)
+    toast(T('proj.shareSaved'), 'ok')
     await refreshHosts()
   } catch (e) {
     toast(e.message || T('ui.opFailed'), 'err')

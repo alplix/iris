@@ -304,8 +304,9 @@ Honest overview of what exists today.
 - **Multi-project scheduling**: free task slots are divided across attached projects by resource share
   (BOINC's own default of 100 when unset) instead of a first-come FIFO that could starve one project
   behind another's deep queue. This is a simple, honest proportional split, not BOINC's own
-  historical-debt algorithm — and there is not yet a settings page to configure a *different* share per
-  project, so in practice every project is equally weighted today.
+  historical-debt algorithm. Each project card has a **share** field (100 = equal) that sets the weight on an
+  Iris client and is sent to the project (`resource_share_fraction`); a stock BOINC client cannot take it,
+  its share comes from the project site.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
 - **Running real BOINC applications (unsandboxed, on by default).** A scheduler reply's
@@ -327,8 +328,11 @@ Honest overview of what exists today.
   of freezing the process, and on shutdown asks it to quit (so it can checkpoint) before killing it.
   Applications that do not use the API keep the old behaviour (OS-level suspend, estimated progress).
   Checked against a real project application (NumberFields' `GetDecics`): it reported progress and CPU
-  time through the channel and exited cleanly on `<quit/>`. The trickle and graphics channels are not
-  implemented.
+  time through the channel and exited cleanly on `<quit/>`. **Trickle messages** work too: an application's
+  trickle-ups (`trickle_up.xml`) are queued in the project folder, sent with the next scheduler request as
+  `<msg_from_host>` and deleted on the server's `<message_ack/>`; a project's `<trickle_down>` is written into
+  the task's slot and the application is told. Verified with a test application, not yet with a project that
+  uses trickles. The graphics channel is not implemented (nothing current uses it).
 - **Returning results.** When a task exits cleanly, the output files its result declares are checked
   (missing or oversized ones fail the task with BOINC's own error numbers instead of pretending it
   succeeded) and uploaded with the same request the reference client makes: a `get_file_size` query
@@ -385,9 +389,7 @@ Honest overview of what exists today.
 - **Confirmation against a live project.** Everything above is verified against BOINC's published
   source and a strict project double, not against a real project's server and science application.
   Anything a real server does that the source does not show (validation rules, quirks) is untested.
-- A settings page to actually configure a *different* resource share per project (today every project
-  defaults to an equal 100 — see the multi-project scheduling note above), web-based preferences, proxy
-  settings, account creation from the client.
+- Web-based preferences, proxy settings, account creation from the client.
 - Code signing for the Windows/macOS installers — needs a certificate we don't have.
 
 If one of these matters to you, open an issue — the order of the roadmap follows what people ask for.

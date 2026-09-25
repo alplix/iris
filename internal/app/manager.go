@@ -352,6 +352,26 @@ func (m *Manager) ProjectOp(hostID, url, op string) error {
 	return err
 }
 
+// SetProjectShare sets a project's resource share on a host (Iris clients
+// only; a stock BOINC client cannot, its share comes from the project site).
+func (m *Manager) SetProjectShare(hostID, url string, share float64) error {
+	cfg, ok := m.Store.Get(hostID)
+	if !ok {
+		return fmt.Errorf("host not found")
+	}
+	var err error
+	if cfg.Demo {
+		err = m.mockFor(cfg).SetProjectShare(url, share)
+	} else if c, cerr := m.clientFor(cfg); cerr != nil {
+		err = cerr
+	} else {
+		err = c.SetProjectShare(url, share)
+		c.Close()
+	}
+	m.Kick(hostID)
+	return err
+}
+
 func (m *Manager) TransferOp(hostID, name, op string) error {
 	cfg, ok := m.Store.Get(hostID)
 	if !ok {
