@@ -506,3 +506,18 @@ code {
 .theme-swatch:hover { transform: translateY(-2px); border-color: var(--border-strong); }
 .theme-swatch.sel { border-color: var(--accent); color: var(--text); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18); }
 .theme-swatch .dot { width: 34px; height: 34px; border-radius: 50%; box-shadow: var(--shadow-sm); }
+
+/* Nature scene on the Statistics page: trees wither as emitted CO2 grows. */
+.nature-svg { width: 100%; height: auto; max-height: 300px; border-radius: 14px; display: block; }
+.nature-svg .sway { animation: nature-sway 5s ease-in-out infinite; }
+.nature-svg .nleaf { opacity: 0; }
+.nature-svg.play .nleaf { animation: nature-leaf 6s linear infinite; }
+@keyframes nature-sway { 0%, 100% { rotate: -1.2deg; } 50% { rotate: 1.2deg; } }
+@keyframes nature-leaf {
+  0% { transform: translate(0, 0) rotate(0deg); opacity: 0; }
+  10% { opacity: 0.95; }
+  100% { transform: translate(34px, 150px) rotate(300deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nature-svg .sway, .nature-svg.play .nleaf { animation: none; }
+}

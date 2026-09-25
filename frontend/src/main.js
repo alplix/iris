@@ -769,6 +769,105 @@ function svgKwhBars(days, width, height, cpuColor, gpuColor) {
   return `<svg viewBox="0 0 ${width} ${height}" class="linechart" preserveAspectRatio="xMidYMid meet">${grid}${bars}</svg>`
 }
 
+
+// ---- Nature that withers with the carbon you emit -------------------------
+// Each tree stands for the ~21 kg of CO2 one tree absorbs in a year; every
+// 21 kg emitted, the next tree withers. It plays once when the page opens (the
+// scene fades from healthy to its real state) and can be replayed.
+const NATURE_TREES = 7
+const KG_PER_TREE = 21
+
+function hexMix(a, b, t) {
+  const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
+  const x = p(a), y = p(b)
+  return '#' + x.map((v, i) => Math.round(v + (y[i] - v) * Math.max(0, Math.min(1, t))).toString(16).padStart(2, '0')).join('')
+}
+
+function natureScene(kg) {
+  const trees = kg / KG_PER_TREE
+  const decay = Math.min(1, trees / NATURE_TREES)
+  const el = (tag, attrs, inner = '') => `<${tag} ${attrs}>${inner}</${tag}>`
+  let out = ''
+  // sky, sun, ground
+  out += `<rect x="0" y="0" width="800" height="260" data-fill="${hexMix('#bae6fd', '#d6d3d1', decay)}" style="fill:#bae6fd"/>`
+  out += `<circle cx="690" cy="52" r="26" data-fill="${hexMix('#fde047', '#9ca3af', decay)}" style="fill:#fde047"/>`
+  out += `<path d="M0 205 Q200 185 400 200 T800 195 V260 H0 Z" data-fill="${hexMix('#4ade80', '#a8935a', decay)}" style="fill:#4ade80"/>`
+  out += `<path d="M0 225 Q260 210 520 224 T800 218 V260 H0 Z" data-fill="${hexMix('#22c55e', '#8a6d3b', decay)}" style="fill:#22c55e"/>`
+  // flowers droop and grey with the overall decay
+  for (let i = 0; i < 11; i++) {
+    const x = 30 + i * 72 + (i % 3) * 9
+    const y = 236 + (i % 2) * 6
+    const lean = (i % 2 ? 1 : -1) * decay * 70
+    out += `<g data-rot="${lean.toFixed(0)}" style="transform-origin:${x}px ${y}px;transform:rotate(0deg)">
+      <line x1="${x}" y1="${y}" x2="${x}" y2="${y - 16}" stroke="#15803d" stroke-width="2"/>
+      <circle cx="${x}" cy="${y - 18}" r="5" data-fill="${hexMix(['#f472b6', '#fbbf24', '#a78bfa'][i % 3], '#9ca3af', decay)}" style="fill:${['#f472b6', '#fbbf24', '#a78bfa'][i % 3]}"/></g>`
+  }
+  // trees
+  let withered = 0
+  for (let i = 0; i < NATURE_TREES; i++) {
+    const f = Math.max(0, Math.min(1, trees - i))
+    if (f >= 1) withered++
+    const x = 62 + i * 112
+    const h = 62 + ((i * 37) % 30)
+    const base = 208 + (i % 2) * 4
+    const top = base - h
+    const col = f < 0.75 ? hexMix('#22c55e', '#a16207', f / 0.75) : '#78350f'
+    const vis = f < 0.75 ? 1 : Math.max(0, 1 - (f - 0.75) / 0.25)
+    const sway = f >= 1 ? '' : 'sway'
+    out += `<g>
+      <path d="M${x - 5} ${base} L${x - 3} ${top + 8} L${x + 3} ${top + 8} L${x + 5} ${base} Z" data-fill="${hexMix('#78350f', '#6b7280', f)}" style="fill:#78350f"/>
+      <g data-op="${f.toFixed(2)}" style="opacity:0;transition:opacity 3s ease">
+        <line x1="${x}" y1="${top + 14}" x2="${x - 22}" y2="${top - 6}" stroke="#57534e" stroke-width="3" stroke-linecap="round"/>
+        <line x1="${x}" y1="${top + 20}" x2="${x + 24}" y2="${top - 2}" stroke="#57534e" stroke-width="3" stroke-linecap="round"/>
+        <line x1="${x}" y1="${top + 6}" x2="${x + 4}" y2="${top - 22}" stroke="#57534e" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <g class="${sway}" data-scale="${vis.toFixed(2)}" style="transform-box:fill-box;transform-origin:50% 100%;transform:scale(1);transition:transform 3s ease">
+        <circle cx="${x}" cy="${top - 6}" r="30" data-fill="${col}" style="fill:#22c55e"/>
+        <circle cx="${x - 20}" cy="${top + 8}" r="21" data-fill="${col}" style="fill:#22c55e"/>
+        <circle cx="${x + 20}" cy="${top + 8}" r="21" data-fill="${col}" style="fill:#22c55e"/>
+      </g>`
+    out += `</g>`
+    if (f > 0 && f < 1) {
+      for (let k = 0; k < 3; k++) {
+        out += `<ellipse class="nleaf" cx="${x + (k - 1) * 16}" cy="${top + 4}" rx="4" ry="2.2" fill="${col}" style="animation-delay:${(k * 1.7 + i * 0.6).toFixed(1)}s"/>`
+      }
+    }
+  }
+  return { svg: out, withered, decay }
+}
+
+function playNature(replay) {
+  const svg = document.querySelector('#nature-svg')
+  if (!svg) return
+  svg.querySelectorAll('[data-fill]').forEach(n => { if (!n.dataset.start) n.dataset.start = n.style.fill })
+  const apply = on => {
+    svg.querySelectorAll('[data-fill]').forEach(n => { n.style.transition = 'fill 3s ease'; if (on) n.style.fill = n.dataset.fill })
+    svg.querySelectorAll('[data-op]').forEach(n => { n.style.opacity = on ? n.dataset.op : '0' })
+    svg.querySelectorAll('[data-scale]').forEach(n => { n.style.transform = `scale(${on ? n.dataset.scale : 1})` })
+    svg.querySelectorAll('[data-rot]').forEach(n => { n.style.transition = 'transform 3s ease'; n.style.transform = `rotate(${on ? n.dataset.rot : 0}deg)` })
+    svg.classList.toggle('play', on)
+  }
+  if (replay) {
+    // Snap back to the healthy scene, then fade to the real state again.
+    svg.querySelectorAll('[data-fill]').forEach(n => { n.style.transition = 'none'; n.style.fill = n.dataset.start || n.style.fill })
+    apply(false)
+    void svg.getBoundingClientRect()
+  }
+  setTimeout(() => apply(true), 80)
+}
+window._playNature = () => playNature(true)
+
+function natureCard(kg) {
+  const sc = natureScene(kg)
+  const shown = Math.min(NATURE_TREES, kg / KG_PER_TREE)
+  const line = T('energy.nature', { v: shown.toLocaleString(locale(), { maximumFractionDigits: 1 }), n: NATURE_TREES, k: KG_PER_TREE })
+  return `<div class="card nature" style="display:flex;flex-direction:column;gap:8px">
+    <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(T('energy.natureTitle'))}</h3><button class="btn sm" onclick="window._playNature()">↻ ${esc(T('energy.replay'))}</button></div>
+    <svg id="nature-svg" viewBox="0 0 800 260" class="nature-svg" preserveAspectRatio="xMidYMid slice" role="img" aria-label="${jsq(line)}">${sc.svg}</svg>
+    <div class="faint" style="font-size:12px">${esc(line)}</div>
+  </div>`
+}
+
 function energyCard(h) {
   const e = state.energy[h.id]
   if (!e) return ''
@@ -841,7 +940,7 @@ async function loadStats() {
 function renderStats() {
   loadStats().then(() => {
     const c = $('#content')
-    if (c && state.page === 'stats') c.innerHTML = renderStatsInner()
+    if (c && state.page === 'stats') { c.innerHTML = renderStatsInner(); playNature(false) }
   })
   return `<div class="content-inner"><div class="card"><div class="empty"><b>${esc(T('ui.loadingStats'))}</b></div></div></div>`
 }
@@ -923,11 +1022,16 @@ function renderStatsInner() {
   }
 
   let energyCards = ''
-  for (const h of state.hosts) energyCards += energyCard(h)
+  let totalKg = 0
+  for (const h of state.hosts) {
+    energyCards += energyCard(h)
+    totalKg += state.energy[h.id]?.totalKgCO2 || 0
+  }
+  const natureHTML = energyCards && totalKg > 0 ? natureCard(totalKg) : ''
 
   const hasData = creditCharts || xferChart || diskCards || energyCards
   return `<div class="content-inner">
-    ${energyCards ? `<div class="section-title"><h2>${esc(T('energy.title'))}</h2></div><div class="cards-grid">${energyCards}</div>` : ''}
+    ${energyCards ? `<div class="section-title"><h2>${esc(T('energy.title'))}</h2></div>${natureHTML ? `<div style="margin-bottom:14px">${natureHTML}</div>` : ''}<div class="cards-grid">${energyCards}</div>` : ''}
     ${creditCharts ? `<div class="section-title"><h2>${esc(T('ui.creditHistory'))}</h2></div><div style="display:flex;flex-direction:column;gap:14px">${creditCharts}</div>` : ''}
     ${xferChart ? `<div style="display:flex;flex-direction:column;gap:14px">${xferChart}</div>` : ''}
     ${diskCards ? `<div class="section-title"><h2>${esc(T('ui.diskUsage'))}</h2></div><div class="cards-grid">${diskCards}</div>` : ''}
@@ -1842,15 +1946,17 @@ window._doEditHost = async (id) => {
 }
 
 const ENERGY_KEYS = ['cpu_watts', 'gpu_watts', 'grid_gco2_kwh']
+const ECO_KEYS = ['max_ncpus_pct', 'no_gpu']
 
 window._openPrefs = async (hostId) => {
   const h = state.hosts.find(x => x.id === hostId)
   if (!h) return
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
-  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name' && !ENERGY_KEYS.includes(k)).map(([k, v]) => `${k}=${v}`).join('\n')
+  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name' && !ENERGY_KEYS.includes(k) && !ECO_KEYS.includes(k)).map(([k, v]) => `${k}=${v}`).join('\n')
   const hostNameVal = prefs?.host_name || ''
   const enVal = k => prefs?.[k] || ''
+  const noGpu = ['1', 'true', 'yes'].includes(String(prefs?.no_gpu || '').toLowerCase())
   const realAppsOn = prefs?.real_apps_enabled !== '0' // on unless explicitly turned off
   state.modal = `
     <div class="modal-overlay" onclick="if(event.target===this)window._closeModal()">
@@ -1876,6 +1982,14 @@ window._openPrefs = async (hostId) => {
             <label style="flex:1;min-width:130px;font-size:12px">${esc(T('energy.setGrid'))}<input class="input" id="en-grid_gco2_kwh" type="number" min="1" step="1" value="${jsq(enVal('grid_gco2_kwh'))}" placeholder="475" style="width:100%"></label>
           </div>
           <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('energy.setHint'))}</p>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-weight:700;display:block;margin-bottom:4px">${esc(T('energy.eco'))}</label>
+          <div class="row wrap" style="gap:12px;align-items:center">
+            <label style="flex:1;min-width:150px;font-size:12px">${esc(T('energy.ecoCpu'))}<input class="input" id="eco-max_ncpus_pct" type="number" min="1" max="100" step="1" value="${jsq(enVal('max_ncpus_pct'))}" placeholder="100" style="width:100%"></label>
+            <label class="row" style="gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="eco-no_gpu" ${noGpu ? 'checked' : ''}>${esc(T('energy.ecoGpu'))}</label>
+          </div>
+          <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('energy.ecoHint'))}</p>
         </div>
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
@@ -1916,12 +2030,17 @@ window._savePrefs = async (hostId) => {
     if (i < 0) continue
     const k = line.slice(0, i).trim()
     const v = line.slice(i + 1).trim()
-    if (!k || k === 'real_apps_enabled' || k === 'host_name' || ENERGY_KEYS.includes(k)) continue // has its own checkbox, applied immediately by _toggleRealApps
+    if (!k || k === 'real_apps_enabled' || k === 'host_name' || ENERGY_KEYS.includes(k) || ECO_KEYS.includes(k)) continue // has its own checkbox, applied immediately by _toggleRealApps
     fields.push([k, v])
   }
   fields.push(['real_apps_enabled', $('#real-apps-toggle')?.checked ? '1' : '0'])
   const hostName = ($('#host-name-input')?.value || '').trim()
   if (hostName) fields.push(['host_name', hostName])
+  {
+    const pct = Number(($('#eco-max_ncpus_pct')?.value || '').trim())
+    if (pct > 0 && pct < 100) fields.push(['max_ncpus_pct', String(Math.round(pct))])
+    if ($('#eco-no_gpu')?.checked) fields.push(['no_gpu', '1'])
+  }
   for (const k of ENERGY_KEYS) {
     const v = ($('#en-' + k)?.value || '').trim()
     if (v && Number(v) > 0) fields.push([k, v])

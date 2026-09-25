@@ -340,6 +340,10 @@ Honest overview of what exists today.
   (default 475 g CO2/kWh, roughly a world average). All three figures are set per host under Settings → a
   host's Global Preferences, and the carbon figures use the current grid number for the whole history.
   Idle power and other programs are not included, and a stock BOINC client cannot report it.
+  To cut it, the same dialog has "use at most N% of CPU cores" and "do not use the GPU" (tasks already
+  running finish first; a GPU that is switched off is also hidden from projects so none is offered). The
+  Statistics page also draws a small scene of trees that wither as the CO2 you emit grows (each tree
+  stands for the ~21 kg one tree absorbs in a year) — an illustration, not a measurement.
 - **Requesting GPU work.** A detected NVIDIA or AMD GPU is now advertised in the scheduler request
   (`<coprocs>`, matching the reference client's own `lib/coproc.cpp` layout), so projects can actually
   offer GPU app_versions instead of never sending any. Two honest gaps remain, both because Iris has

@@ -72,3 +72,26 @@ func TestNoMoreWorkAsksForNoWorkButStillReports(t *testing.T) {
 		t.Errorf("must report the finished result and request no work:\n%s", body)
 	}
 }
+
+func TestSwitchedOffGPUIsHiddenFromTheProject(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		body = string(b)
+		io.WriteString(w, "<scheduler_reply></scheduler_reply>")
+	}))
+	defer srv.Close()
+	fs := newFakeState(ProjectInfo{URL: srv.URL, Name: "P"})
+	fs.hostInfo = HostInfoSnapshot{NvidiaCount: 1, NvidiaName: "GeForce X"}
+	on := true
+	e := NewEngine(fs, fakeCache{}, EngineConfig{GPUEnabledFn: func() bool { return on }})
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if !strings.Contains(body, "<coproc_cuda>") {
+		t.Fatalf("with GPU use on the GPU must be offered:\n%s", body)
+	}
+	on = false
+	e.doRPC(&ProjectState{URL: srv.URL})
+	if strings.Contains(body, "<coproc_cuda>") {
+		t.Errorf("with GPU use off no GPU may be offered:\n%s", body)
+	}
+}
