@@ -175,8 +175,10 @@ type Result struct {
 	// EstimatedRuntime is the expected seconds of work on this host, used to
 	// show progress for applications that do not report any.
 	EstimatedRuntime float64 `xml:"estimated_runtime,omitempty"`
-	StdOut           string  `xml:"stdout"`
-	StdErr           string  `xml:"stderr"`
+	// AppCPUTime is the CPU time the application reported itself.
+	AppCPUTime float64 `xml:"app_cpu_time,omitempty"`
+	StdOut     string  `xml:"stdout"`
+	StdErr     string  `xml:"stderr"`
 }
 
 type FileInfo struct {

@@ -778,7 +778,7 @@ func (a *stateAdapter) GetResults() []scheduler.ResultInfo {
 			Name: r.Name, WuName: r.WuName, ProjectURL: r.ProjectURL,
 			State: r.State, FracDone: r.FractionDone, CPUTime: r.CurrentCPUTime,
 			GPU: r.IsGPU(), Deadline: r.ReportDeadline, ExitStatus: r.ExitStatus,
-			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum, VersionNum: r.VersionNum,
+			CmdLine: r.CmdLine, AppVersionNum: r.AppVersionNum, VersionNum: r.VersionNum, Elapsed: r.ElapsedTime,
 			ReadyToReport: r.ReadyToReport, Platform: r.Platform, PlanClass: r.PlanClass,
 			Slot: r.SlotPath, Outputs: outs,
 		})
@@ -893,6 +893,19 @@ func (a *stateWorkerAdapter) GetResults() []worker.ResultSnapshot {
 // IsSuspended reports a task's current suspend flag by name, polled by the
 // worker while a real OS process is running so a suspend/resume click made
 // mid-task actually reaches it (see internal/worker's suspendTicker).
+// SetAppCPUTime stores the CPU time a running application reported.
+func (a *stateWorkerAdapter) SetAppCPUTime(name string, cpu float64) {
+	a.s.Lock()
+	defer a.s.Unlock()
+	for i := range a.s.Results {
+		if a.s.Results[i].Name == name {
+			a.s.Results[i].AppCPUTime = cpu
+			a.s.Results[i].CurrentCPUTime = cpu
+			return
+		}
+	}
+}
+
 func (a *stateWorkerAdapter) IsSuspended(name string) bool {
 	a.s.RLock()
 	defer a.s.RUnlock()
@@ -935,6 +948,9 @@ func (a *stateWorkerAdapter) UpdateResult(name string, st int, fracDone float64,
 		r.State = st
 		r.FractionDone = fracDone
 		r.CurrentCPUTime = elapsed
+		if r.AppCPUTime > 0 {
+			r.CurrentCPUTime = r.AppCPUTime // the app's own CPU time, not wall time
+		}
 		r.ElapsedTime = elapsed
 		r.ExitStatus = exitStatus
 		r.EstimatedCPUTimeRemaining = 0

@@ -166,6 +166,8 @@ type ResultInfo struct {
 	Outputs   []OutputInfo
 	// EstRuntime is the expected run time in seconds on this host (0 = unknown).
 	EstRuntime float64
+	// Elapsed is wall-clock seconds the task ran (CPUTime is the CPU time).
+	Elapsed float64
 }
 
 // OutputInfo is one file a task produces and uploads (see state.OutputFile).
@@ -806,6 +808,15 @@ func matchAppVersion(appVersions []AppVersionXML, rr ReplyResult, appName string
 
 // buildReport turns a finished, fully uploaded result into what a scheduler
 // expects in its request.
+// elapsedOf is a task's wall-clock time, falling back to its CPU time when it
+// was not recorded.
+func elapsedOf(r ResultInfo) float64 {
+	if r.Elapsed > 0 {
+		return r.Elapsed
+	}
+	return r.CPUTime
+}
+
 func buildReport(r ResultInfo) ResultXML {
 	state := ReportStateFilesUploaded
 	if r.State == 5 {
@@ -831,7 +842,7 @@ func buildReport(r ResultInfo) ResultXML {
 	x := ResultXML{
 		Name:             r.Name,
 		FinalCPUTime:     r.CPUTime,
-		FinalElapsedTime: r.CPUTime,
+		FinalElapsedTime: elapsedOf(r),
 		ExitStatus:       r.ExitStatus,
 		State:            state,
 		Platform:         platform,

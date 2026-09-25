@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,6 +92,9 @@ type StateAccessor interface {
 	// so a suspend/resume click reaches an already-started OS process instead
 	// of only affecting which tasks the next cycle picks to start.
 	IsSuspended(name string) bool
+	// SetAppCPUTime records the CPU time the application itself reports; it is
+	// what a finished result is reported with.
+	SetAppCPUTime(name string, cpu float64)
 	// SetOutputs records what a finished task produced (which output files
 	// exist, their sizes and MD5s).
 	SetOutputs(name string, outs []OutputRef)
@@ -561,13 +565,23 @@ func (e *Engine) startTask(r ResultSnapshot) {
 		return
 	}
 
+	// A real BOINC application gets the API's shared-memory channel, so it can
+	// report its real progress and CPU time and be asked to suspend, resume and
+	// quit properly. If the channel cannot be made the app simply runs in the
+	// API's standalone mode, as before.
+	var shm *shmem
 	if isMainProgramFile(r, exePath) {
-		e.writeInitDataFile(r)
+		if s, err := createShmem(r.Slot); err != nil {
+			log.Printf("[Worker] No shared-memory channel for %s (running standalone): %v", r.Name, err)
+		} else {
+			shm = s
+		}
+		e.writeInitDataFile(r, shm)
 	}
 
 	log.Printf("[Worker] Task %s ready, launching %s", r.Name, exePath)
 	e.state.UpdateResult(r.Name, StateCompute, r.FracDone, 0, 0)
-	e.runApp(r, exePath)
+	e.runApp(r, exePath, shm)
 }
 
 // isMainProgramFile reports whether exePath is the flagged real-application
@@ -592,15 +606,19 @@ func isMainProgramFile(r ResultSnapshot, exePath string) bool {
 // or fraction_done polling through that channel; Iris still honors suspend
 // at the OS process level (see pauseProcess) and reads fraction_done.txt
 // exactly as it always has for the demo stub.
-func (e *Engine) writeInitDataFile(r ResultSnapshot) {
+func (e *Engine) writeInitDataFile(r ResultSnapshot, shm *shmem) {
 	authenticator, _, _ := e.projects.GetAuthInfo(r.ProjectURL)
 	fp := filepath.Join(r.Slot, "init_data.xml")
-	if err := os.WriteFile(fp, buildInitDataXML(r, authenticator, e.cfg.DataDir, e.cfg.CheckpointSec), 0o644); err != nil {
+	tag := ""
+	if shm != nil {
+		tag = shm.initTag
+	}
+	if err := os.WriteFile(fp, buildInitDataXML(r, authenticator, e.cfg.DataDir, e.cfg.CheckpointSec, tag), 0o644); err != nil {
 		log.Printf("[Worker] Cannot write init_data.xml for %s: %v", r.Name, err)
 	}
 }
 
-func buildInitDataXML(r ResultSnapshot, authenticator, boincDir string, checkpointSec int) []byte {
+func buildInitDataXML(r ResultSnapshot, authenticator, boincDir string, checkpointSec int, shmTag string) []byte {
 	esc := func(s string) string {
 		var b strings.Builder
 		xml.EscapeText(&b, []byte(s))
@@ -623,6 +641,9 @@ func buildInitDataXML(r ResultSnapshot, authenticator, boincDir string, checkpoi
 	fmt.Fprintf(&b, "  <wu_name>%s</wu_name>\n", esc(r.WuName))
 	fmt.Fprintf(&b, "  <result_name>%s</result_name>\n", esc(r.Name))
 	fmt.Fprintf(&b, "  <slot>%s</slot>\n", esc(r.Slot))
+	if shmTag != "" {
+		b.WriteString("  " + shmTag + "\n")
+	}
 	fmt.Fprintf(&b, "  <client_pid>%d</client_pid>\n", os.Getpid())
 	fmt.Fprintf(&b, "  <wu_cpu_time>%.6f</wu_cpu_time>\n", r.CPUTime)
 	if checkpointSec <= 0 {
@@ -845,7 +866,8 @@ func gpuEnv() []string {
 	return []string{"CUDA_VISIBLE_DEVICES=0", "GPU_DEVICE_ORDINAL=0"}
 }
 
-func (e *Engine) runApp(r ResultSnapshot, exePath string) {
+func (e *Engine) runApp(r ResultSnapshot, exePath string, shm *shmem) {
+	defer shm.Close()
 	start := time.Now()
 
 	var cmd *exec.Cmd
@@ -924,6 +946,17 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 	// resumed later, exactly where it left off.
 	suspendTicker := time.NewTicker(2 * time.Second)
 	defer suspendTicker.Stop()
+	// What the application tells us through the shared-memory channel.
+	var appActive, appHaveFrac, pausedViaMsg bool
+	var appFrac float64
+	shmTicker := time.NewTicker(time.Second)
+	defer shmTicker.Stop()
+	curProgress := func() float64 {
+		if appHaveFrac {
+			return appFrac
+		}
+		return readProgress(r.Slot)
+	}
 	var paused bool
 	var pausedAccum time.Duration
 	var pauseStart time.Time
@@ -941,15 +974,44 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 		if !paused {
 			return
 		}
-		if err := resumeProcess(cmd); err != nil {
+		if pausedViaMsg && shm != nil {
+			shm.sendOverwrite(chProcessControlRequest, "<resume/>")
+		} else if err := resumeProcess(cmd); err != nil {
 			log.Printf("[Worker] Failed to resume %s before stopping it: %v", r.Name, err)
 		}
+		pausedViaMsg = false
 		pausedAccum += time.Since(pauseStart)
 		paused = false
 	}
 
+	// quitApp asks the application to finish: through the channel when it uses
+	// it (so it can checkpoint), otherwise by terminating the process.
+	quitApp := func() {
+		if appActive && shm != nil {
+			shm.sendOverwrite(chProcessControlRequest, "<quit/>")
+			return
+		}
+		terminateProcess(cmd)
+	}
+
 	for {
 		select {
+		case <-shmTicker.C:
+			if shm != nil {
+				shm.send(chHeartbeat, "<heartbeat/>")
+				if msg, ok := shm.get(chAppStatus); ok {
+					if st, ok := parseAppStatus(msg); ok {
+						appActive = true
+						if st.cpuTime > 0 {
+							e.state.SetAppCPUTime(r.Name, st.cpuTime)
+						}
+						if st.haveFraction && st.fraction >= 0 {
+							appFrac, appHaveFrac = math.Min(st.fraction, 1), true
+						}
+					}
+				}
+			}
+
 		case err := <-done:
 			elapsed := effectiveElapsed().Seconds()
 			exitCode := classifyExit(err)
@@ -961,13 +1023,13 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			if wasStopping {
 				log.Printf("[Worker] Task %s interrupted during shutdown", r.Name)
 				e.writeCheckpoint(r)
-				e.state.UpdateResult(r.Name, StateNew, readProgress(r.Slot), elapsed, 0)
+				e.state.UpdateResult(r.Name, StateNew, curProgress(), elapsed, 0)
 				return
 			}
 
 			switch exitCode {
 			case ExitOK:
-				progress := readProgress(r.Slot)
+				progress := curProgress()
 				if code, msg := e.collectOutputs(r); code != 0 {
 					log.Printf("[Worker] Task %s finished but its output is unusable: %s", r.Name, msg)
 					e.state.AddMessage(fmt.Sprintf("Task %s finished but %s", r.Name, msg), r.ProjectURL, 3)
@@ -991,7 +1053,7 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 				if wasStopping {
 					log.Printf("[Worker] Task %s paused for shutdown (exit %d)", r.Name, exitCode)
 					e.writeCheckpoint(r)
-					e.state.UpdateResult(r.Name, StateNew, readProgress(r.Slot), elapsed, 0)
+					e.state.UpdateResult(r.Name, StateNew, curProgress(), elapsed, 0)
 				} else {
 					log.Printf("[Worker] Task %s requests client exit unexpectedly (exit %d)", r.Name, exitCode)
 					e.state.UpdateResult(r.Name, StateError, 0, elapsed, exitCode)
@@ -1009,7 +1071,7 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 
 		case <-checkpointTicker.C:
 			e.writeCheckpoint(r)
-			progress := readProgress(r.Slot)
+			progress := curProgress()
 			elapsed := time.Since(start).Seconds()
 			e.state.UpdateResult(r.Name, StateCompute, progress, elapsed, 0)
 
@@ -1021,7 +1083,12 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			}
 			if elapsed > maxElap {
 				resumeIfPaused()
-				terminateProcess(cmd)
+				quitApp()
+				select {
+				case <-time.After(20 * time.Second):
+					cmd.Process.Kill()
+				case <-done:
+				}
 				e.state.UpdateResult(r.Name, StateError, 0, maxElap.Seconds(), ExitExceeded)
 				log.Printf("[Worker] Task %s timed out (%.1fs)", r.Name, maxElap.Seconds())
 				return
@@ -1029,7 +1096,7 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			if paused {
 				continue // don't report bogus progress climbing while the process isn't actually running
 			}
-			progress := readProgress(r.Slot)
+			progress := curProgress()
 			frac := progress
 			if frac < elapsed.Seconds()/maxElap.Seconds() {
 				frac = elapsed.Seconds() / maxElap.Seconds()
@@ -1040,6 +1107,9 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 				// like the reference client does, not from the 24 h time limit.
 				frac = elapsed.Seconds() / r.EstRuntime
 			}
+			if appHaveFrac {
+				frac = appFrac // the application's own figure beats every estimate
+			}
 			if frac > 0.99 {
 				frac = 0.99
 			}
@@ -1049,7 +1119,10 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 			suspended := e.state.IsSuspended(r.Name)
 			switch {
 			case suspended && !paused:
-				if err := pauseProcess(cmd); err != nil {
+				if appActive && shm != nil {
+					shm.sendOverwrite(chProcessControlRequest, "<suspend/>")
+					pausedViaMsg = true
+				} else if err := pauseProcess(cmd); err != nil {
 					log.Printf("[Worker] Failed to suspend %s: %v", r.Name, err)
 					continue
 				}
@@ -1064,14 +1137,14 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string) {
 		case <-e.stop:
 			log.Printf("[Worker] Stopping task %s", r.Name)
 			resumeIfPaused()
-			terminateProcess(cmd)
+			quitApp()
 			select {
 			case <-time.After(30 * time.Second):
 				cmd.Process.Kill()
 			case <-done:
 			}
 			e.writeCheckpoint(r)
-			e.state.UpdateResult(r.Name, StateNew, readProgress(r.Slot), effectiveElapsed().Seconds(), 0)
+			e.state.UpdateResult(r.Name, StateNew, curProgress(), effectiveElapsed().Seconds(), 0)
 			return
 		}
 	}
