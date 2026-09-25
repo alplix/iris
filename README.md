@@ -365,9 +365,13 @@ Honest overview of what exists today.
   misbehaving driver cannot take the client down) and sends each GPU's `<coproc_opencl>` description —
   device/platform versions, memory, compute units, clock, NVIDIA compute capability — plus the compute
   units and clock the server needs to size the card itself. A project's OpenCL plan classes (which said
-  "device (or driver) doesn't support OpenCL") can now match. On Linux and macOS there is no OpenCL detection yet
-  (it needs the driver library without cgo), so no OpenCL is claimed there. Intel integrated GPUs are not
-  offered to projects yet.
+  "device (or driver) doesn't support OpenCL") can now match. On Linux and macOS Iris cannot load the driver library without cgo, so it reads the
+  `clinfo --raw` tool's output when `clinfo` is installed (parser tested against real macOS output;
+  Linux and AMD/Intel devices are not yet tested on real hardware) and claims no OpenCL otherwise. Intel
+  integrated GPUs are described as `<coproc_intel_gpu>`, Apple GPUs are not offered yet. **VirtualBox and Docker**
+  (`VBoxManage --version`, `docker --version`) are reported in `host_info` so projects can offer their
+  virtual-machine and container applications — hidden while real-application execution is off. Those
+  applications have not been tried against a live project.
 - **A macOS menu bar tray icon.** `getlantern/systray` (used on Windows/Linux) and Wails both register
   their own Cocoa `NSApplicationDelegate` and crash if linked into the same binary, so macOS shipped
   with no tray at all until now. Fixed with a small native `NSStatusBar`/`NSStatusItem` package

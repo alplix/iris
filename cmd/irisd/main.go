@@ -224,6 +224,7 @@ func runDaemon() {
 		HostCPID:          st.HostInfo.HostCPID,
 		HostNameFn:        func() string { return overrides.Get()["host_name"] },
 		GPUEnabledFn:      func() bool { return !overrides.Bool(prefs.NoGPUKey) },
+		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
 	})
 	handler.sched = schedEngine
 	schedEngine.Start()
@@ -272,6 +273,9 @@ func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 		DFree:     specs.DFree,
 		DTotal:    specs.DTotal,
 		CamVer:    product.Version,
+
+		VirtualBoxVersion: specs.VirtualBox,
+		DockerVersion:     specs.Docker,
 	}
 	var props []state.OpenCLProp
 	for _, g := range specs.GPUs {
@@ -807,9 +811,18 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 		AtiCount: int(hi.Coprocs.AtiDevCount), AtiName: atiName,
 		NvidiaCCMajor: int(hi.Coprocs.NvidiaCCMajor), NvidiaCCMinor: int(hi.Coprocs.NvidiaCCMinor),
 		CudaVersion: int(hi.Coprocs.CudaVersion), NvidiaDriver: hi.Coprocs.NvidiaDriverVersion,
-		NvidiaCL: firstCL(a.s.OpenCLDevs, "nvidia"), AtiCL: firstCL(a.s.OpenCLDevs, "amd"),
+		NvidiaCL: firstCL(a.s.OpenCLDevs, "nvidia"), AtiCL: firstCL(a.s.OpenCLDevs, "amd"), IntelCL: firstCL(a.s.OpenCLDevs, "intel"),
+		IntelCount: int(hi.Coprocs.IntelGpuDevCount), IntelName: firstName(hi.Coprocs.IntelGpuDeviceNames),
+		VirtualBoxVersion: hi.VirtualBoxVersion, DockerVersion: hi.DockerVersion,
 		NvidiaMem: vramFor(a.s.OpenCLGpuProps, nvidiaName), AtiMem: vramFor(a.s.OpenCLGpuProps, atiName),
 	}
+}
+
+func firstName(names []string) string {
+	if len(names) > 0 {
+		return names[0]
+	}
+	return ""
 }
 
 // firstCL returns the first OpenCL device of a vendor kind, or nil.

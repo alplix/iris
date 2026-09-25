@@ -90,17 +90,19 @@ type HostInfoXML struct {
 	Timezone   int      `xml:"timezone"`
 	DomainName string   `xml:"domain_name,omitempty"`
 	// ProductName is the "Model" column of a project's host list.
-	ProductName string  `xml:"product_name,omitempty"`
-	OsName      string  `xml:"os_name"`
-	OsVersion   string  `xml:"os_version"`
-	PVendor     string  `xml:"p_vendor"`
-	PModel      string  `xml:"p_model"`
-	PNcpus      int     `xml:"p_ncpus"`
-	PFlops      float64 `xml:"p_fpops"`
-	MNbytes     float64 `xml:"m_nbytes"`
-	DFree       float64 `xml:"d_free"`
-	DTotal      float64 `xml:"d_total"`
-	ConnType    int     `xml:"conn_type"`
+	ProductName       string  `xml:"product_name,omitempty"`
+	VirtualBoxVersion string  `xml:"virtualbox_version,omitempty"`
+	DockerVersion     string  `xml:"docker_version,omitempty"`
+	OsName            string  `xml:"os_name"`
+	OsVersion         string  `xml:"os_version"`
+	PVendor           string  `xml:"p_vendor"`
+	PModel            string  `xml:"p_model"`
+	PNcpus            int     `xml:"p_ncpus"`
+	PFlops            float64 `xml:"p_fpops"`
+	MNbytes           float64 `xml:"m_nbytes"`
+	DFree             float64 `xml:"d_free"`
+	DTotal            float64 `xml:"d_total"`
+	ConnType          int     `xml:"conn_type"`
 }
 
 // ClientAppVersionsXML is the <app_versions> list an anonymous-platform client
@@ -129,9 +131,10 @@ type ClientCoprocXML struct {
 // COPROC_ATI::write_xml): a nil pointer omits the whole <coprocs> element,
 // matching a GPU-less host sending nothing rather than an empty tag.
 type CoprocsXML struct {
-	XMLName xml.Name       `xml:"coprocs"`
-	CUDA    *CoprocCudaXML `xml:"coproc_cuda"`
-	ATI     *CoprocAtiXML  `xml:"coproc_ati"`
+	XMLName xml.Name        `xml:"coprocs"`
+	CUDA    *CoprocCudaXML  `xml:"coproc_cuda"`
+	ATI     *CoprocAtiXML   `xml:"coproc_ati"`
+	Intel   *CoprocIntelXML `xml:"coproc_intel_gpu"`
 }
 
 // CoprocCudaXML advertises the host's NVIDIA GPU(s) as one aggregate entry
@@ -205,6 +208,17 @@ type CoprocAtiXML struct {
 	// LocalRAM is the video memory in megabytes (the reference client writes
 	// this one in MB, unlike CUDA's bytes).
 	LocalRAM     float64          `xml:"localRAM,omitempty"`
+	ReqSecs      float64          `xml:"req_secs"`
+	ReqInstances float64          `xml:"req_instances"`
+	OpenCL       *CoprocOpenCLXML `xml:"coproc_opencl"`
+}
+
+// CoprocIntelXML is an Intel integrated GPU (COPROC_INTEL::write_xml).
+type CoprocIntelXML struct {
+	Count        int              `xml:"count"`
+	Name         string           `xml:"name"`
+	AvailableRAM float64          `xml:"available_ram"`
+	HaveOpenCL   int              `xml:"have_opencl"`
 	ReqSecs      float64          `xml:"req_secs"`
 	ReqInstances float64          `xml:"req_instances"`
 	OpenCL       *CoprocOpenCLXML `xml:"coproc_opencl"`

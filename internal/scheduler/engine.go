@@ -39,6 +39,10 @@ type EngineConfig struct {
 	// GPUEnabledFn, when set and returning false, hides the GPUs from the
 	// project so it offers no GPU work.
 	GPUEnabledFn func() bool
+	// RealAppsEnabledFn, when it returns false, keeps VirtualBox and Docker
+	// hidden from projects: their applications are real executables too, and
+	// would only sit unstarted.
+	RealAppsEnabledFn func() bool
 }
 
 type ProjectState struct {
@@ -119,7 +123,11 @@ type HostInfoSnapshot struct {
 	NvidiaMem float64
 	AtiMem    float64
 	// CUDA details from nvidia-smi (zero = unknown, nothing is claimed).
-	NvidiaCL, AtiCL              *detect.OpenCLDevice // what the OpenCL driver reported, if anything
+	NvidiaCL, AtiCL, IntelCL     *detect.OpenCLDevice // what the OpenCL driver reported, if anything
+	IntelCount                   int
+	IntelName                    string
+	VirtualBoxVersion            string
+	DockerVersion                string
 	NvidiaCCMajor, NvidiaCCMinor int
 	CudaVersion                  int
 	NvidiaDriver                 string
@@ -421,7 +429,10 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	hostInfo := e.state.GetHostInfo()
 	if e.cfg.GPUEnabledFn != nil && !e.cfg.GPUEnabledFn() {
-		hostInfo.NvidiaCount, hostInfo.AtiCount = 0, 0
+		hostInfo.NvidiaCount, hostInfo.AtiCount, hostInfo.IntelCount = 0, 0, 0
+	}
+	if e.cfg.RealAppsEnabledFn != nil && !e.cfg.RealAppsEnabledFn() {
+		hostInfo.VirtualBoxVersion, hostInfo.DockerVersion = "", ""
 	}
 	shareFraction := resourceShareFraction(e.state.GetProjects(), ps.URL)
 	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
@@ -456,20 +467,22 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		// The reference client writes <coprocs> next to <host_info>, not inside it.
 		Coprocs: buildCoprocsXML(hostInfo, gpuQueued),
 		HostInfo: &HostInfoXML{
-			HostCPID:    e.cfg.HostCPID,
-			Timezone:    localTimezone(),
-			DomainName:  e.hostName(),
-			ProductName: reportedProductName,
-			OsName:      reportedOSName(hostInfo.OSName),
-			OsVersion:   hostInfo.OSVersion,
-			PVendor:     hostInfo.Vendor,
-			PModel:      hostInfo.Model,
-			PNcpus:      hostInfo.Ncpus,
-			PFlops:      hostInfo.PFlops,
-			MNbytes:     hostInfo.MNbytes,
-			DFree:       hostInfo.DFree,
-			DTotal:      hostInfo.DTotal,
-			ConnType:    3,
+			HostCPID:          e.cfg.HostCPID,
+			VirtualBoxVersion: hostInfo.VirtualBoxVersion,
+			DockerVersion:     hostInfo.DockerVersion,
+			Timezone:          localTimezone(),
+			DomainName:        e.hostName(),
+			ProductName:       reportedProductName,
+			OsName:            reportedOSName(hostInfo.OSName),
+			OsVersion:         hostInfo.OSVersion,
+			PVendor:           hostInfo.Vendor,
+			PModel:            hostInfo.Model,
+			PNcpus:            hostInfo.Ncpus,
+			PFlops:            hostInfo.PFlops,
+			MNbytes:           hostInfo.MNbytes,
+			DFree:             hostInfo.DFree,
+			DTotal:            hostInfo.DTotal,
+			ConnType:          3,
 		},
 		CoreClientVer:   product.UserAgent(),
 		WorkReqSeconds:  workReqSecs,
@@ -865,7 +878,7 @@ func buildReport(r ResultInfo) ResultXML {
 // vendor BOINC recognizes here, matching how a real GPU-less host's request
 // looks on the wire.
 func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
-	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 {
+	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 && hi.IntelCount <= 0 {
 		return nil
 	}
 	c := &CoprocsXML{}
@@ -898,6 +911,17 @@ func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 		}
 		if hi.NvidiaCount <= 0 {
 			c.ATI.ReqSecs, c.ATI.ReqInstances = gpuWorkRequest(hi.AtiCount, gpuQueued)
+		}
+	}
+	if hi.IntelCount > 0 {
+		c.Intel = &CoprocIntelXML{Count: hi.IntelCount, Name: coprocName(hi.IntelName)}
+		if cl := hi.IntelCL; cl != nil {
+			c.Intel.HaveOpenCL = 1
+			c.Intel.OpenCL = openCLXML(cl)
+			c.Intel.AvailableRAM = float64(cl.GlobalMem)
+		}
+		if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 {
+			c.Intel.ReqSecs, c.Intel.ReqInstances = gpuWorkRequest(hi.IntelCount, gpuQueued)
 		}
 	}
 	return c

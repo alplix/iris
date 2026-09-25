@@ -53,7 +53,11 @@ type HostInfo struct {
 	HostCPID  string   `xml:"host_cpid"`
 	CamVer    string   `xml:"iris_version"`
 	GPUs      []string `xml:"gpu>name"`
-	Coprocs   Coprocs  `xml:"coprocs"`
+	// Versions of the virtualization tools found, sent to projects so they can
+	// offer virtual-machine and container applications.
+	VirtualBoxVersion string  `xml:"virtualbox_version,omitempty"`
+	DockerVersion     string  `xml:"docker_version,omitempty"`
+	Coprocs           Coprocs `xml:"coprocs"`
 }
 
 // Coprocs mirrors the GPU section of a BOINC host_info so managers can list

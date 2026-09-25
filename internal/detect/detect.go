@@ -20,6 +20,8 @@ type Specs struct {
 	GPUs      []GPU
 	// Nvidia is filled only when an NVIDIA GPU is present and nvidia-smi answers.
 	Nvidia NvidiaDetails
+	// Installed virtualization tools, "" if absent.
+	VirtualBox, Docker string
 }
 
 type GPU struct {
@@ -57,6 +59,8 @@ func Detect() Specs {
 	}
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
+	s.VirtualBox = VirtualBoxVersion()
+	s.Docker = DockerVersion()
 	for _, g := range s.GPUs {
 		if g.Vendor == "NVIDIA" {
 			s.Nvidia = nvidiaDetails()
