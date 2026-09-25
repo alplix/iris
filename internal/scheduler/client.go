@@ -562,7 +562,9 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 		return nil, fmt.Errorf("marshal: %w", err)
 	}
 
-	resp, err := c.httpClient.Post(c.GetSchedulerURL(), "text/xml", bytes.NewReader(data))
+	resp, err := postFollow(context.Background(), c.httpClient, c.GetSchedulerURL(), "text/xml", func() (io.Reader, int64, error) {
+		return bytes.NewReader(data), int64(len(data)), nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("POST: %w", err)
 	}
