@@ -186,9 +186,33 @@ function fleetSummary() {
     errors: online.reduce((a, s) => a + (s.totals?.errors || 0), 0),
     downloads: online.reduce((a, s) => a + (s.totals?.downloads || 0), 0),
     uploads: online.reduce((a, s) => a + (s.totals?.uploads || 0), 0),
-    rac: online.reduce((a, s) => a + (s.totals?.rac || 0), 0),
-    credit: online.reduce((a, s) => a + (s.totals?.credit || 0), 0)
+    ...accountCredit(online)
   }
+}
+
+// Credit and RAC of the account per project, counted once per project even when
+// several computers are attached to it. A computer's own credit is 0 until a
+// project has credited that computer, which made the totals look broken.
+function accountCredit(snaps) {
+  const byProject = new Map()
+  for (const s of snaps) {
+    for (const p of s.projects || []) {
+      const e = byProject.get(p.url) || { rac: 0, credit: 0 }
+      e.rac = Math.max(e.rac, p.rac || 0)
+      e.credit = Math.max(e.credit, p.userCredit || 0)
+      byProject.set(p.url, e)
+    }
+  }
+  let rac = 0, credit = 0
+  for (const e of byProject.values()) { rac += e.rac; credit += e.credit }
+  return { rac, credit }
+}
+
+// The figures on a computer's card: its own credit once it has some, else the account's.
+function hostCreditFigures(snap) {
+  const t = snap?.totals || {}
+  if ((t.rac || 0) > 0 || (t.credit || 0) > 0) return { rac: t.rac || 0, credit: t.credit || 0 }
+  return accountCredit([snap || {}])
 }
 
 async function api(method, ...args) {
@@ -400,8 +424,8 @@ function renderDashboard() {
             ${(snap.totals?.errors || 0) > 0 ? `<span class="badge error">${esc(T('ui.errors', { n: snap.totals.errors }))}</span>` : ''}
           </div>
           <div class="spread faint">
-            <span>${esc(T('dash.racLbl'))} <b class="num muted">${fmtCredit(snap.totals?.rac)}</b></span>
-            <span>${esc(T('dash.creditLbl'))} <b class="num muted">${fmtCredit(snap.totals?.credit)}</b></span>
+            <span>${esc(T('dash.racLbl'))} <b class="num muted">${fmtCredit(hostCreditFigures(snap).rac)}</b></span>
+            <span>${esc(T('dash.creditLbl'))} <b class="num muted">${fmtCredit(hostCreditFigures(snap).credit)}</b></span>
           </div>
           ${sparkline ? `<div class="spark-wrap"><span class="faint" style="font-size:11px">${esc(T('ui.activity'))}</span>${sparkline}</div>` : ''}
           <div class="row wrap" style="gap:6px">${projects}</div>
@@ -955,7 +979,9 @@ function renderStatsInner() {
     const series = state.stats[h.id] || []
     for (const s of series) {
       const color = PALETTE[Math.abs((s.url || '').length * 47) % PALETTE.length]
-      const data = (s.daily || []).map(p => ({ v: p.hostCredit, l: (p.day || '').slice(4, 6) + '/' + (p.day || '').slice(6, 8) }))
+      // A computer no project has credited yet has no history of its own; chart the account's instead.
+      const useAccount = (s.daily || []).every(p => !p.hostCredit)
+      const data = (s.daily || []).map(p => ({ v: useAccount ? p.userCredit : p.hostCredit, l: (p.day || '').slice(4, 6) + '/' + (p.day || '').slice(6, 8) }))
       creditCharts += `
         <div class="card" style="display:flex;flex-direction:column;gap:8px">
           <div class="card-head"><h3 class="card-title" style="font-size:14px"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${color};flex-shrink:0"></span> ${esc(s.name || s.url)}</h3><span class="chip plain">${esc(h.name)}</span></div>
