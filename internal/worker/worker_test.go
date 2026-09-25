@@ -132,7 +132,7 @@ func TestBuildInitDataXMLIncludesCoreFields(t *testing.T) {
 		Name: "wu_1_0", WuName: "wu_1", AppVersionNum: 7, AppName: "my_app",
 		Slot: filepath.Join("data", "slots", "0"), FracDone: 0.25,
 	}
-	data := string(buildInitDataXML(r, "some-auth-token", "data", 300))
+	data := string(buildInitDataXML(r, "some-auth-token", "data", 300, "<comm_obj_name>boinc_3</comm_obj_name>"))
 	for _, want := range []string{
 		"<app_init_data>", "</app_init_data>",
 		"<app_version>7</app_version>",
@@ -157,7 +157,7 @@ func TestBuildInitDataXMLIncludesCoreFields(t *testing.T) {
 // link the BOINC API misbehave.
 func TestBuildInitDataXMLAdvertisesTheFirstGPUOnlyForGPUTasks(t *testing.T) {
 	gpuTask := ResultSnapshot{Name: "g", GPU: true}
-	data := string(buildInitDataXML(gpuTask, "", "data", 300))
+	data := string(buildInitDataXML(gpuTask, "", "data", 300, ""))
 	for _, want := range []string{"<gpu_device_num>0</gpu_device_num>", "<gpu_opencl_dev_index>0</gpu_opencl_dev_index>"} {
 		if !strings.Contains(data, want) {
 			t.Errorf("GPU task init_data.xml missing %q, got:\n%s", want, data)
@@ -165,7 +165,7 @@ func TestBuildInitDataXMLAdvertisesTheFirstGPUOnlyForGPUTasks(t *testing.T) {
 	}
 
 	cpuTask := ResultSnapshot{Name: "c", GPU: false}
-	data = string(buildInitDataXML(cpuTask, "", "data", 300))
+	data = string(buildInitDataXML(cpuTask, "", "data", 300, ""))
 	if strings.Contains(data, "gpu_device_num") {
 		t.Errorf("a CPU task must not get a gpu_device_num, got:\n%s", data)
 	}

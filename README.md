@@ -316,11 +316,19 @@ Honest overview of what exists today.
   already-running task at the OS level (`SIGSTOP`/`SIGCONT`, or the Windows
   `NtSuspendProcess`/`NtResumeProcess` equivalent — each covered by a test that pauses and resumes a
   real, running process on its own OS). This is deliberately **not sandboxed**: a downloaded project
-  binary runs with Iris's own privileges, the same trust model as the reference BOINC client, and there
-  is no shared-memory channel to the app (so an app falls back to the BOINC API's own "standalone"
-  behavior rather than getting live checkpoint/suspend callbacks through it). It can be switched off
+  binary runs with Iris's own privileges, the same trust model as the reference BOINC client. It can be
+  switched off
   per host from Settings → a host's Global Preferences, where the risk is stated next to the switch. A
   task the client was interrupted in is queued again on the next start.
+- **The BOINC API channel to applications.** Each real application gets the API's shared-memory segment (a
+  named file mapping on Windows, a memory-mapped `boinc_mmap_file` in the slot elsewhere), so it no longer
+  falls back to "standalone mode": Iris reads its **real fraction done and CPU time** (the CPU time is what
+  a result is reported with), sends the once-a-second heartbeat, suspends and resumes it by message instead
+  of freezing the process, and on shutdown asks it to quit (so it can checkpoint) before killing it.
+  Applications that do not use the API keep the old behaviour (OS-level suspend, estimated progress).
+  Checked against a real project application (NumberFields' `GetDecics`): it reported progress and CPU
+  time through the channel and exited cleanly on `<quit/>`. The trickle and graphics channels are not
+  implemented.
 - **Returning results.** When a task exits cleanly, the output files its result declares are checked
   (missing or oversized ones fail the task with BOINC's own error numbers instead of pretending it
   succeeded) and uploaded with the same request the reference client makes: a `get_file_size` query
