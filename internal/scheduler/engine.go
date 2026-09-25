@@ -125,6 +125,10 @@ type HostInfoSnapshot struct {
 	// CUDA details from nvidia-smi (zero = unknown, nothing is claimed).
 	NvidiaCL, AtiCL, IntelCL     *detect.OpenCLDevice // what the OpenCL driver reported, if anything
 	IntelCount                   int
+	AppleCount                   int
+	AppleModel                   string
+	AppleCores, AppleMetal       int
+	AppleCL                      *detect.OpenCLDevice
 	IntelName                    string
 	VirtualBoxVersion            string
 	DockerVersion                string
@@ -429,7 +433,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 
 	hostInfo := e.state.GetHostInfo()
 	if e.cfg.GPUEnabledFn != nil && !e.cfg.GPUEnabledFn() {
-		hostInfo.NvidiaCount, hostInfo.AtiCount, hostInfo.IntelCount = 0, 0, 0
+		hostInfo.NvidiaCount, hostInfo.AtiCount, hostInfo.IntelCount, hostInfo.AppleCount = 0, 0, 0, 0
 	}
 	if e.cfg.RealAppsEnabledFn != nil && !e.cfg.RealAppsEnabledFn() {
 		hostInfo.VirtualBoxVersion, hostInfo.DockerVersion = "", ""
@@ -878,7 +882,7 @@ func buildReport(r ResultInfo) ResultXML {
 // vendor BOINC recognizes here, matching how a real GPU-less host's request
 // looks on the wire.
 func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
-	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 && hi.IntelCount <= 0 {
+	if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 && hi.IntelCount <= 0 && hi.AppleCount <= 0 {
 		return nil
 	}
 	c := &CoprocsXML{}
@@ -922,6 +926,17 @@ func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 		}
 		if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 {
 			c.Intel.ReqSecs, c.Intel.ReqInstances = gpuWorkRequest(hi.IntelCount, gpuQueued)
+		}
+	}
+	if hi.AppleCount > 0 {
+		c.Apple = &CoprocAppleXML{Count: hi.AppleCount, Model: hi.AppleModel, NCores: hi.AppleCores, MetalSupport: hi.AppleMetal, HaveMetal: 1}
+		if cl := hi.AppleCL; cl != nil {
+			c.Apple.HaveOpenCL = 1
+			c.Apple.OpenCL = openCLXML(cl)
+			c.Apple.AvailableRAM = float64(cl.GlobalMem)
+		}
+		if hi.NvidiaCount <= 0 && hi.AtiCount <= 0 && hi.IntelCount <= 0 {
+			c.Apple.ReqSecs, c.Apple.ReqInstances = gpuWorkRequest(hi.AppleCount, gpuQueued)
 		}
 	}
 	return c

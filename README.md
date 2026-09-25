@@ -368,7 +368,7 @@ Honest overview of what exists today.
   "device (or driver) doesn't support OpenCL") can now match. On Linux and macOS Iris cannot load the driver library without cgo, so it reads the
   `clinfo --raw` tool's output when `clinfo` is installed (parser tested against real macOS output;
   Linux and AMD/Intel devices are not yet tested on real hardware) and claims no OpenCL otherwise. Intel
-  integrated GPUs are described as `<coproc_intel_gpu>`, Apple GPUs are not offered yet. **VirtualBox and Docker**
+  integrated GPUs are described as `<coproc_intel_gpu>`, Apple-silicon GPUs (found with `system_profiler`: model, GPU cores, Metal version — checked on a real M1) are sent as `<coproc_apple_gpu>`. **VirtualBox and Docker**
   (`VBoxManage --version`, `docker --version`) are reported in `host_info` so projects can offer their
   virtual-machine and container applications — hidden while real-application execution is off. Those
   applications have not been tried against a live project.

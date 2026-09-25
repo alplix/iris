@@ -22,6 +22,9 @@ type Specs struct {
 	Nvidia NvidiaDetails
 	// Installed virtualization tools, "" if absent.
 	VirtualBox, Docker string
+	// Apple is the Apple-silicon GPU on a Mac; Ok is false elsewhere.
+	Apple    AppleGPUInfo
+	HasApple bool
 }
 
 type GPU struct {
@@ -59,6 +62,7 @@ func Detect() Specs {
 	}
 	s.DTotal, s.DFree = getDiskUsage()
 	s.GPUs = detectGPUs()
+	s.Apple, s.HasApple = AppleGPU()
 	s.VirtualBox = VirtualBoxVersion()
 	s.Docker = DockerVersion()
 	for _, g := range s.GPUs {

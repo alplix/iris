@@ -36,12 +36,14 @@ type OpenCLDevice struct {
 	DriverVersion     string `json:"driverVersion"`
 }
 
-// Kind classifies a device by vendor: "nvidia", "amd", "intel" or "other".
+// Kind classifies a device by vendor: "nvidia", "amd", "intel", "apple" or "other".
 func (d OpenCLDevice) Kind() string {
 	v := strings.ToLower(d.Vendor + " " + d.Name)
 	switch {
 	case strings.Contains(v, "nvidia"):
 		return "nvidia"
+	case strings.Contains(strings.ToLower(d.Vendor), "apple"):
+		return "apple"
 	case strings.Contains(v, "advanced micro") || strings.Contains(v, "amd") || strings.Contains(v, "ati "):
 		return "amd"
 	case strings.Contains(v, "intel"):

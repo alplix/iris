@@ -288,6 +288,8 @@ func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 		case strings.Contains(lower, "amd") || strings.Contains(lower, "ati ") || strings.Contains(lower, "radeon") || strings.Contains(lower, "advanced micro"):
 			hi.Coprocs.AtiDeviceNames = append(hi.Coprocs.AtiDeviceNames, g.Name)
 			hi.Coprocs.AtiDevCount++
+		case strings.Contains(lower, "apple"):
+			hi.Coprocs.AppleGpuDevCount++
 		case strings.Contains(lower, "intel"):
 			hi.Coprocs.IntelGpuDeviceNames = append(hi.Coprocs.IntelGpuDeviceNames, g.Name)
 			hi.Coprocs.IntelGpuDevCount++
@@ -299,6 +301,12 @@ func buildHostInfo(specs detect.Specs) (state.HostInfo, []state.OpenCLProp) {
 		}
 	}
 	hi.Coprocs.Count = float64(len(specs.GPUs))
+	if specs.HasApple {
+		hi.Coprocs.AppleGpuDevCount = 1
+		hi.Coprocs.AppleGpuModel = specs.Apple.Model
+		hi.Coprocs.AppleGpuCores = specs.Apple.Cores
+		hi.Coprocs.AppleMetal = specs.Apple.Metal
+	}
 	if hi.Coprocs.NvidiaDevCount > 0 {
 		hi.Coprocs.NvidiaCCMajor, hi.Coprocs.NvidiaCCMinor = specs.Nvidia.CCMajor, specs.Nvidia.CCMinor
 		hi.Coprocs.NvidiaDriverVersion = specs.Nvidia.Driver
@@ -813,6 +821,8 @@ func (a *stateAdapter) GetHostInfo() scheduler.HostInfoSnapshot {
 		CudaVersion: int(hi.Coprocs.CudaVersion), NvidiaDriver: hi.Coprocs.NvidiaDriverVersion,
 		NvidiaCL: firstCL(a.s.OpenCLDevs, "nvidia"), AtiCL: firstCL(a.s.OpenCLDevs, "amd"), IntelCL: firstCL(a.s.OpenCLDevs, "intel"),
 		IntelCount: int(hi.Coprocs.IntelGpuDevCount), IntelName: firstName(hi.Coprocs.IntelGpuDeviceNames),
+		AppleCount: int(hi.Coprocs.AppleGpuDevCount), AppleModel: hi.Coprocs.AppleGpuModel, AppleCores: hi.Coprocs.AppleGpuCores, AppleMetal: hi.Coprocs.AppleMetal,
+		AppleCL:           firstCL(a.s.OpenCLDevs, "apple"),
 		VirtualBoxVersion: hi.VirtualBoxVersion, DockerVersion: hi.DockerVersion,
 		NvidiaMem: vramFor(a.s.OpenCLGpuProps, nvidiaName), AtiMem: vramFor(a.s.OpenCLGpuProps, atiName),
 	}

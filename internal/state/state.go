@@ -74,6 +74,10 @@ type Coprocs struct {
 	AtiDevCount         float64  `xml:"ati_dev_count,omitempty"`
 	AtiDeviceNames      []string `xml:"ati_device_name"`
 	IntelGpuDevCount    float64  `xml:"intel_gpu_dev_count,omitempty"`
+	AppleGpuDevCount    float64  `xml:"apple_gpu_dev_count,omitempty"`
+	AppleGpuModel       string   `xml:"apple_gpu_model,omitempty"`
+	AppleGpuCores       int      `xml:"apple_gpu_cores,omitempty"`
+	AppleMetal          int      `xml:"apple_gpu_metal,omitempty"`
 	IntelGpuDeviceNames []string `xml:"intel_gpu_device_name"`
 	OtherGpuDeviceNames []string `xml:"other_gpu_device_name"`
 }
