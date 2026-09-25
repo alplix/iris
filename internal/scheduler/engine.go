@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alplix/iris/internal/detect"
 	"github.com/alplix/iris/internal/product"
 	"github.com/alplix/iris/internal/project"
 )
@@ -118,6 +119,7 @@ type HostInfoSnapshot struct {
 	NvidiaMem float64
 	AtiMem    float64
 	// CUDA details from nvidia-smi (zero = unknown, nothing is claimed).
+	NvidiaCL, AtiCL              *detect.OpenCLDevice // what the OpenCL driver reported, if anything
 	NvidiaCCMajor, NvidiaCCMinor int
 	CudaVersion                  int
 	NvidiaDriver                 string
@@ -857,12 +859,32 @@ func buildCoprocsXML(hi HostInfoSnapshot, gpuQueued int) *CoprocsXML {
 	}
 	c := &CoprocsXML{}
 	if hi.NvidiaCount > 0 {
-		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: coprocName(hi.NvidiaName), HaveCUDA: 1, HaveOpenCL: 1, TotalGlobalMem: hi.NvidiaMem,
+		c.CUDA = &CoprocCudaXML{Count: hi.NvidiaCount, Name: coprocName(hi.NvidiaName), HaveCUDA: 1, TotalGlobalMem: hi.NvidiaMem,
 			Major: hi.NvidiaCCMajor, Minor: hi.NvidiaCCMinor, CudaVersion: hi.CudaVersion, DrvVersion: driverInt(hi.NvidiaDriver)}
+		if cl := hi.NvidiaCL; cl != nil {
+			c.CUDA.HaveOpenCL = 1
+			c.CUDA.OpenCL = openCLXML(cl)
+			if c.CUDA.TotalGlobalMem == 0 {
+				c.CUDA.TotalGlobalMem = float64(cl.GlobalMem)
+			}
+			if c.CUDA.Major == 0 {
+				c.CUDA.Major, c.CUDA.Minor = int(cl.NvCCMajor), int(cl.NvCCMinor)
+			}
+			// With these the server can work out the card's speed itself.
+			c.CUDA.MultiProcessorCount = int(cl.MaxComputeUnits)
+			c.CUDA.ClockRate = int(cl.MaxClockMHz * 1000)
+		}
 		c.CUDA.ReqSecs, c.CUDA.ReqInstances = gpuWorkRequest(hi.NvidiaCount, gpuQueued)
 	}
 	if hi.AtiCount > 0 {
-		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: coprocName(hi.AtiName), HaveOpenCL: 1, LocalRAM: hi.AtiMem / (1 << 20)}
+		c.ATI = &CoprocAtiXML{Count: hi.AtiCount, Name: coprocName(hi.AtiName), LocalRAM: hi.AtiMem / (1 << 20)}
+		if cl := hi.AtiCL; cl != nil {
+			c.ATI.HaveOpenCL = 1
+			c.ATI.OpenCL = openCLXML(cl)
+			if c.ATI.LocalRAM == 0 {
+				c.ATI.LocalRAM = float64(cl.GlobalMem) / (1 << 20)
+			}
+		}
 		if hi.NvidiaCount <= 0 {
 			c.ATI.ReqSecs, c.ATI.ReqInstances = gpuWorkRequest(hi.AtiCount, gpuQueued)
 		}
@@ -927,6 +949,25 @@ func localHostname() string {
 		return ""
 	}
 	return h
+}
+
+// openCLXML is the <coproc_opencl> block of a GPU (OPENCL_DEVICE_PROP::write_xml).
+func openCLXML(d *detect.OpenCLDevice) *CoprocOpenCLXML {
+	b2i := func(b bool) int {
+		if b {
+			return 1
+		}
+		return 0
+	}
+	return &CoprocOpenCLXML{
+		Name: d.Name, Vendor: d.Vendor, VendorID: d.VendorID, Available: b2i(d.Available),
+		HalfFP: d.HalfFPConfig, SingleFP: d.SingleFPConfig, DoubleFP: d.DoubleFPConfig,
+		EndianLittle: b2i(d.EndianLittle), ExecCaps: d.ExecutionCaps, Extensions: d.Extensions,
+		GlobalMem: d.GlobalMem, LocalMem: d.LocalMem, MaxClock: d.MaxClockMHz, MaxCUs: d.MaxComputeUnits,
+		NvCCMajor: d.NvCCMajor, NvCCMinor: d.NvCCMinor,
+		AmdSimdPerCU: d.AmdSimdPerCU, AmdSimdWidth: d.AmdSimdWidth, AmdSimdInstrWidth: d.AmdSimdInstrWidth,
+		PlatformVersion: d.PlatformVersion, DeviceVersion: d.DeviceVersion, DriverVersion: d.DriverVersion,
+	}
 }
 
 // gpuWorkRequest asks for work for every GPU that has nothing queued, the same

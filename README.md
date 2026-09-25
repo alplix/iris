@@ -353,6 +353,13 @@ Honest overview of what exists today.
   (`gpu_device_num` in `init_data.xml`, plus `CUDA_VISIBLE_DEVICES`/`GPU_DEVICE_ORDINAL`), so a
   multi-GPU host's extra devices sit idle. Covered by real application execution's same
   toggle above — GPU tasks are only ever downloaded and run while that is on.
+- **OpenCL detection (Windows).** The client loads `OpenCL.dll` directly (in a separate probe process, so a
+  misbehaving driver cannot take the client down) and sends each GPU's `<coproc_opencl>` description —
+  device/platform versions, memory, compute units, clock, NVIDIA compute capability — plus the compute
+  units and clock the server needs to size the card itself. A project's OpenCL plan classes (which said
+  "device (or driver) doesn't support OpenCL") can now match. On Linux and macOS there is no OpenCL detection yet
+  (it needs the driver library without cgo), so no OpenCL is claimed there. Intel integrated GPUs are not
+  offered to projects yet.
 - **A macOS menu bar tray icon.** `getlantern/systray` (used on Windows/Linux) and Wails both register
   their own Cocoa `NSApplicationDelegate` and crash if linked into the same binary, so macOS shipped
   with no tray at all until now. Fixed with a small native `NSStatusBar`/`NSStatusItem` package
