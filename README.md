@@ -307,6 +307,22 @@ Honest overview of what exists today.
   historical-debt algorithm. Each project card has a **share** field (100 = equal) that sets the weight on an
   Iris client and is sent to the project (`resource_share_fraction`); a stock BOINC client cannot take it,
   its share comes from the project site.
+- **Task concurrency limits that actually held.** A slot was only counted as occupied once a task
+  reached *computing*, not while it was still downloading — so on a host whose downloads took longer
+  than the 5-second scheduling tick, every tick started a fresh batch on top of whatever the last one
+  hadn't finished yet. Reported live: a 12-core/24-thread machine ended up running 50 tasks at once.
+  Fixed to count a task as occupying a slot for its whole time in the pipeline, download included (a
+  user-suspended computing task still frees its slot, as before). Two related gaps found at the same
+  time are fixed too: **Abort** used to just delete the task from the list while its process — and its
+  slot's disk space — kept going forever; it now actually kills a running task and frees its slot once
+  whichever stage it was in stops (a currently-downloading task can't be interrupted mid-transfer yet,
+  so its slot is freed once that download itself finishes). The abort button is available for any task
+  that isn't already done. **`app_config.xml`** (a project folder's own `<project_max_concurrent>` and
+  each `<app>`'s `<max_concurrent>`) is now read and enforced — the one thing the report's own
+  workaround attempt relied on, which silently did nothing before this (the file's `<app_version>` and
+  `<gpu_versions>` elements are accepted but not yet acted on). The **work buffer** — how many
+  days of work to request per idle core (BOINC's own "store at least N days" setting, 1 by default) —
+  is also now a per-host setting instead of a fixed day, in Global Preferences.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
 - **Running real BOINC applications (unsandboxed, on by default).** A scheduler reply's

@@ -246,16 +246,18 @@ a.link:hover { text-decoration: underline; }
 [data-theme='dark'] .badge.upload { color: var(--accent-soft); }
 
 .tbl-wrap { overflow-x: auto; border-radius: 14px; border: 1px solid var(--border); }
-table.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 860px; }
+/* Compact by default: a wide row was reported as limiting the Tasks page to
+   about 12 visible rows even on a normal-height window. */
+table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 860px; }
 .tbl thead th {
-  text-align: left; padding: 11px 14px;
+  text-align: left; padding: 7px 12px;
   font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint);
   background: rgba(var(--accent-rgb), 0.06);
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; backdrop-filter: blur(8px); z-index: 1;
 }
 [data-theme='dark'] .tbl thead th { background: rgba(35, 28, 50, 0.75); }
-.tbl tbody td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.tbl tbody td { padding: 6px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .tbl tbody tr { transition: background 0.12s ease; }
 .tbl tbody tr:hover { background: rgba(var(--accent-rgb), 0.055); }
 .tbl tbody tr:last-child td { border-bottom: none; }

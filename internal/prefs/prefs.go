@@ -160,6 +160,11 @@ const RealAppsKey = "real_apps_enabled"
 // (an energy/carbon-saving switch in Global Preferences).
 const NoGPUKey = "no_gpu"
 
+// WorkBufDaysKey scales how many days of work to request per idle core
+// (BOINC's own "store at least N days of work" preference); unset or 0 means
+// the default of 1 day. Read back with Float.
+const WorkBufDaysKey = "work_buf_days"
+
 // Bool returns whether key is set to a truthy value ("1", "true", "yes").
 func (s *Store) Bool(key string) bool {
 	s.mu.RLock()

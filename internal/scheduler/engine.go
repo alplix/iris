@@ -43,6 +43,10 @@ type EngineConfig struct {
 	// hidden from projects: their applications are real executables too, and
 	// would only sit unstarted.
 	RealAppsEnabledFn func() bool
+	// WorkBufDaysFn, when set and returning a value greater than 0, scales how
+	// many days of work to request per idle core (BOINC's own "store at least
+	// N days of work" preference); 1 day when unset.
+	WorkBufDaysFn func() float64
 }
 
 type ProjectState struct {
@@ -393,17 +397,32 @@ const targetBufferSecs = 24 * 60 * 60
 // workFetchRequest sizes a scheduler request's work-fetch fields. Without
 // these, a scheduler has no signal that Iris wants any work at all, and
 // many will send none — a fresh attach could otherwise sit at zero tasks
-// forever even once contact succeeds.
-func workFetchRequest(ncpus, alreadyQueued int) (workReqSecs, cpuReqSecs, cpuReqInstances float64) {
+// forever even once contact succeeds. days scales the buffer (BOINC's own
+// "store at least N days of work" preference, e.g. 0.5 to fetch less at once).
+func workFetchRequest(ncpus, alreadyQueued int, days float64) (workReqSecs, cpuReqSecs, cpuReqInstances float64) {
 	if ncpus <= 0 {
 		ncpus = 1
+	}
+	if days <= 0 {
+		days = 1
 	}
 	idle := ncpus - alreadyQueued
 	if idle <= 0 {
 		return 0, 0, 0
 	}
-	cpuReqSecs = float64(idle) * targetBufferSecs
+	cpuReqSecs = float64(idle) * targetBufferSecs * days
 	return cpuReqSecs, cpuReqSecs, float64(idle)
+}
+
+// workBufDays reads the configured work-buffer size, or 1 (one day per idle
+// core, BOINC's own default) when unset.
+func (e *Engine) workBufDays() float64 {
+	if e.cfg.WorkBufDaysFn != nil {
+		if d := e.cfg.WorkBufDaysFn(); d > 0 {
+			return d
+		}
+	}
+	return 1
 }
 
 // countQueuedForProject counts results for url that still occupy a work
@@ -439,7 +458,7 @@ func (e *Engine) doRPC(ps *ProjectState) {
 		hostInfo.VirtualBoxVersion, hostInfo.DockerVersion = "", ""
 	}
 	shareFraction := resourceShareFraction(e.state.GetProjects(), ps.URL)
-	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL))
+	workReqSecs, cpuReqSecs, cpuReqInstances := workFetchRequest(hostInfo.Ncpus, countQueuedForProject(e.state.GetResults(), ps.URL), e.workBufDays())
 
 	gpuQueued := countGPUQueued(e.state.GetResults(), ps.URL)
 	projDir := ""

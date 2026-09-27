@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -372,5 +373,33 @@ func TestSetProjectShareStoresTheShare(t *testing.T) {
 	}
 	if got := r.st.GetProjectByURL("https://p.example/").ResourceShare; got != 40 {
 		t.Errorf("share over RPC = %v, want 40", got)
+	}
+}
+
+// TestResultOpAbortFreesTheSlot guards the abort button actually doing
+// something: it used to just delete the result from state, leaving a running
+// process and its slot directory both orphaned forever.
+func TestResultOpAbortFreesTheSlot(t *testing.T) {
+	r := newRig(t)
+	slot, err := r.h.cache.AllocSlot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.st.AddResult(state.Result{Name: "victim", SlotPath: slot, State: worker.StateError})
+	r.h.worker = worker.NewEngine(&stateWorkerAdapter{r.st}, &cacheAdapter{r.h.cache}, &projectAdapter{r.st}, nil, nil, worker.Config{})
+
+	if err := r.h.ResultOp("victim", "abort"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(slot); !os.IsNotExist(err) {
+		t.Errorf("aborting must free the task's slot directory, stat = %v", err)
+	}
+	for _, res := range r.st.Snapshot().Results {
+		if res.Name == "victim" {
+			t.Error("the aborted result must be removed from state")
+		}
+	}
+	if err := r.h.ResultOp("victim", "bogus"); err == nil {
+		t.Error("an unknown result operation must be an error")
 	}
 }
