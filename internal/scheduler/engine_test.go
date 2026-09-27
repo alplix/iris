@@ -192,7 +192,7 @@ func TestDoRPCDiscoversTheRealSchedulerURLFromTheMasterPage(t *testing.T) {
 // real schedulers "I don't want anything", so a freshly attached project
 // could sit at zero tasks forever even once contact itself succeeded.
 func TestWorkFetchRequestAsksForIdleCoresOnly(t *testing.T) {
-	workSecs, cpuSecs, instances := workFetchRequest(4, 0)
+	workSecs, cpuSecs, instances := workFetchRequest(4, 0, 1)
 	if instances != 4 {
 		t.Errorf("4 idle cores should request 4 instances, got %v", instances)
 	}
@@ -200,16 +200,44 @@ func TestWorkFetchRequestAsksForIdleCoresOnly(t *testing.T) {
 		t.Errorf("an idle machine must ask for a nonzero amount of work, got work=%v cpu=%v", workSecs, cpuSecs)
 	}
 
-	if _, _, instances := workFetchRequest(4, 2); instances != 2 {
+	if _, _, instances := workFetchRequest(4, 2, 1); instances != 2 {
 		t.Errorf("2 of 4 cores already queued should request 2 more instances, got %v", instances)
 	}
 
-	if workSecs, cpuSecs, instances := workFetchRequest(4, 4); workSecs != 0 || cpuSecs != 0 || instances != 0 {
+	if workSecs, cpuSecs, instances := workFetchRequest(4, 4, 1); workSecs != 0 || cpuSecs != 0 || instances != 0 {
 		t.Errorf("a fully queued machine should request nothing, got work=%v cpu=%v instances=%v", workSecs, cpuSecs, instances)
 	}
 
-	if _, _, instances := workFetchRequest(4, 10); instances != 0 {
+	if _, _, instances := workFetchRequest(4, 10, 1); instances != 0 {
 		t.Errorf("more already queued than cores should never request a negative amount, got %v", instances)
+	}
+}
+
+func TestWorkFetchRequestScalesByDays(t *testing.T) {
+	full, halfDay := float64(targetBufferSecs), 0.5*float64(targetBufferSecs)
+	if _, cpuSecs, _ := workFetchRequest(1, 0, 1); cpuSecs != full {
+		t.Errorf("1 day should be the plain buffer, got %v want %v", cpuSecs, full)
+	}
+	if _, cpuSecs, _ := workFetchRequest(1, 0, 0.5); cpuSecs != halfDay {
+		t.Errorf("0.5 days should halve it, got %v want %v", cpuSecs, halfDay)
+	}
+	if _, cpuSecs, _ := workFetchRequest(1, 0, 0); cpuSecs != full {
+		t.Errorf("0 (unset) must fall back to 1 day, got %v", cpuSecs)
+	}
+}
+
+func TestEngineWorkBufDaysFallsBackToOne(t *testing.T) {
+	e := &Engine{}
+	if got := e.workBufDays(); got != 1 {
+		t.Errorf("no WorkBufDaysFn must default to 1, got %v", got)
+	}
+	e.cfg.WorkBufDaysFn = func() float64 { return 0.5 }
+	if got := e.workBufDays(); got != 0.5 {
+		t.Errorf("got %v", got)
+	}
+	e.cfg.WorkBufDaysFn = func() float64 { return -1 }
+	if got := e.workBufDays(); got != 1 {
+		t.Errorf("a non-positive override must fall back to 1, got %v", got)
 	}
 }
 

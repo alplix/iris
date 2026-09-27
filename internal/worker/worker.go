@@ -48,6 +48,10 @@ type Engine struct {
 	// downloadFails counts failed download attempts per task; a few are
 	// retried before the task is given up on.
 	downloadFails map[string]int
+	// aborted marks a task the person cancelled: its in-progress download or
+	// run is discarded (not reported) once the goroutine handling it notices
+	// and returns, which also frees its slot.
+	aborted map[string]bool
 }
 
 type Config struct {
@@ -254,6 +258,7 @@ func NewEngine(state StateAccessor, cache CacheAccessor, projects ProjectAccesso
 		uploadFails: make(map[string]int),
 
 		downloadFails: make(map[string]int),
+		aborted:       make(map[string]bool),
 	}
 }
 
@@ -332,18 +337,34 @@ func (e *Engine) runCycle() {
 	}
 
 	results := e.state.GetResults()
-	running := 0
+	occupied := 0
+	activeProj := map[string]int{}
+	activeApp := map[string]int{} // key: project URL + "\x00" + app name
 
 	for _, r := range results {
-		if (r.State == StateCompute || r.State == StateDownload) && !e.isActive(r.Name) {
+		active := e.isActive(r.Name)
+		if (r.State == StateCompute || r.State == StateDownload) && !active {
 			// Left over from an earlier run of the client: nothing is computing
 			// it, so queue it again rather than leave it stuck.
 			log.Printf("[Worker] Task %s was interrupted earlier, queueing it again", r.Name)
 			e.state.UpdateResult(r.Name, StateNew, r.FracDone, r.CPUTime, 0)
 			continue
 		}
-		if r.State == StateCompute && r.Suspended == 0 {
-			running++
+		// A task occupies a slot for its whole time in the pipeline — download
+		// through compute — not only while actually computing. Counting only
+		// StateCompute here let every 5-second tick launch a fresh batch on
+		// top of whatever was still downloading from the last one, since a
+		// download in progress was invisible to this count: on a host whose
+		// downloads take longer than 5 seconds, far more than max_concurrent
+		// tasks ended up running at once (reported: 50 on a 24-thread host).
+		// A user-suspended computing task still frees its slot, exactly as
+		// before, since it draws no CPU while paused.
+		if active && !(r.State == StateCompute && r.Suspended != 0) {
+			occupied++
+			activeProj[r.ProjectURL]++
+			if r.AppName != "" {
+				activeApp[r.ProjectURL+"\x00"+r.AppName]++
+			}
 		}
 	}
 
@@ -356,7 +377,7 @@ func (e *Engine) runCycle() {
 		log.Printf("[Worker] Disk quota reached (%d/%d), skipping downloads", diskUsage, diskQuota)
 		return
 	}
-	slots := maxConcurrent - running
+	slots := maxConcurrent - occupied
 	if slots <= 0 {
 		return
 	}
@@ -376,13 +397,65 @@ func (e *Engine) runCycle() {
 		eligible = append(eligible, r)
 	}
 
+	eligible = e.applyAppConfigLimits(eligible, activeProj, activeApp)
+
 	for _, r := range pickTasksToStart(eligible, slots) {
 		e.setActive(r.Name, true)
 		go func(r ResultSnapshot) {
 			defer e.setActive(r.Name, false)
-			e.startTask(r)
+			slot := e.startTask(r)
+			if e.takeAborted(r.Name) && slot != "" {
+				e.cache.FreeSlot(slot)
+			}
 		}(r)
 	}
+}
+
+// applyAppConfigLimits drops tasks whose project's app_config.xml caps have
+// already been reached — project-wide (<project_max_concurrent>) or for one
+// named application (<app><max_concurrent>) — counting what activeProj/
+// activeApp say is already occupying a slot, then what this call itself
+// admits, in eligible's own (resource-share-preserving) order. A project
+// without the file, or without a limit that applies, passes through untouched.
+func (e *Engine) applyAppConfigLimits(eligible []ResultSnapshot, activeProj, activeApp map[string]int) []ResultSnapshot {
+	cfgs := map[string]*project.AppConfig{}
+	projCount := make(map[string]int, len(activeProj))
+	for k, v := range activeProj {
+		projCount[k] = v
+	}
+	appCount := make(map[string]int, len(activeApp))
+	for k, v := range activeApp {
+		appCount[k] = v
+	}
+
+	out := make([]ResultSnapshot, 0, len(eligible))
+	for _, r := range eligible {
+		cfg, ok := cfgs[r.ProjectURL]
+		if !ok {
+			var err error
+			cfg, err = project.LoadAppConfig(filepath.Join(e.cfg.DataDir, "projects", project.DirName(r.ProjectURL)))
+			if err != nil {
+				e.state.AddMessage("Ignoring app_config.xml of "+r.ProjectURL+": "+err.Error(), r.ProjectURL, 3)
+				cfg = nil
+			}
+			cfgs[r.ProjectURL] = cfg
+		}
+		if cfg != nil {
+			if cfg.ProjectMaxConcurrent > 0 && projCount[r.ProjectURL] >= cfg.ProjectMaxConcurrent {
+				continue
+			}
+			if max, has := cfg.Apps[r.AppName]; has && max > 0 {
+				key := r.ProjectURL + "\x00" + r.AppName
+				if appCount[key] >= max {
+					continue
+				}
+				appCount[key]++
+			}
+			projCount[r.ProjectURL]++
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // pickTasksToStart chooses up to `slots` more results to start from
@@ -494,6 +567,46 @@ func (e *Engine) setActive(name string, on bool) {
 	}
 }
 
+func (e *Engine) isAborted(name string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.aborted[name]
+}
+
+// takeAborted reports whether name was marked aborted and clears the mark.
+func (e *Engine) takeAborted(name string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	v := e.aborted[name]
+	delete(e.aborted, name)
+	return v
+}
+
+// Abort cancels a task right away: a running process is killed outright; a
+// task still downloading is let finish that download (there is no lower-level
+// cancellation for it yet) but its result is then discarded rather than
+// launched or reported; a task not currently active here (never started, or
+// already finished) is handled by freeing slot immediately, since nothing
+// will notice the mark otherwise. slot is the result's current slot path (the
+// caller reads it from state before removing the result, since once removed
+// this engine has no way to look it up itself).
+func (e *Engine) Abort(name, slot string) {
+	e.mu.Lock()
+	e.aborted[name] = true
+	cmd, running := e.running[name]
+	active := e.active[name]
+	e.mu.Unlock()
+	if running {
+		terminateProcess(cmd)
+	}
+	if !active {
+		e.takeAborted(name)
+		if slot != "" {
+			e.cache.FreeSlot(slot)
+		}
+	}
+}
+
 // warnCacheFull logs a full cache at most once every ten minutes per class.
 func (e *Engine) warnCacheFull(gpu bool) {
 	e.mu.Lock()
@@ -512,18 +625,23 @@ func (e *Engine) warnCacheFull(gpu bool) {
 	log.Printf("[Worker] %s cache is full, not starting more %s work", kind, kind)
 }
 
-func (e *Engine) startTask(r ResultSnapshot) {
+// startTask runs one task end to end (download through compute) and returns
+// the slot directory it used, so a concurrent Abort() knows what to free once
+// this returns — r.Slot may still be empty when this is called (a slot is
+// allocated below) so the caller cannot just read the ResultSnapshot it passed in.
+func (e *Engine) startTask(r ResultSnapshot) (slot string) {
+	defer func() { slot = r.Slot }()
 	log.Printf("[Worker] Starting task %s (gpu=%v, files=%d)", r.Name, r.GPU, len(r.Files))
 
 	if r.Slot == "" {
-		slot, err := e.cache.AllocSlot(r.GPU)
+		newSlot, err := e.cache.AllocSlot(r.GPU)
 		if err != nil {
 			log.Printf("[Worker] No slot for %s: %v", r.Name, err)
 			e.state.UpdateResult(r.Name, StateError, 0, 0, 0)
 			return
 		}
-		r.Slot = slot
-		e.state.SetSlotPath(r.Name, slot)
+		r.Slot = newSlot
+		e.state.SetSlotPath(r.Name, newSlot)
 	}
 
 	if err := os.MkdirAll(r.Slot, 0o755); err != nil {
@@ -560,6 +678,13 @@ func (e *Engine) startTask(r ResultSnapshot) {
 		return
 	}
 
+	if e.isAborted(r.Name) {
+		// Cancelled while its files were downloading; there was no way to
+		// interrupt the download itself, but it must not be launched now.
+		log.Printf("[Worker] Task %s aborted before it could start computing", r.Name)
+		return
+	}
+
 	exePath := e.findExecutable(r)
 	if exePath == "" {
 		log.Printf("[Worker] No executable found for %s", r.Name)
@@ -584,6 +709,7 @@ func (e *Engine) startTask(r ResultSnapshot) {
 	log.Printf("[Worker] Task %s ready, launching %s", r.Name, exePath)
 	e.state.UpdateResult(r.Name, StateCompute, r.FracDone, 0, 0)
 	e.runApp(r, exePath, shm)
+	return
 }
 
 // isMainProgramFile reports whether exePath is the flagged real-application
@@ -1033,6 +1159,10 @@ func (e *Engine) runApp(r ResultSnapshot, exePath string, shm *shmem) {
 
 		case err := <-done:
 			elapsed := effectiveElapsed().Seconds()
+			if e.isAborted(r.Name) {
+				log.Printf("[Worker] Task %s aborted (%.1fs)", r.Name, elapsed)
+				return
+			}
 			exitCode := classifyExit(err)
 
 			e.mu.RLock()

@@ -476,41 +476,47 @@ function renderDashboard() {
 
 function renderTasks() {
   const order = { running: 0, paused: 1, downloading: 2, uploading: 3, queued: 4, ready: 5, error: 6 }
-  let rows = ''
+  let all = []
   for (const [hid, snap] of Object.entries(state.snaps)) {
     if (!snap.online) continue
     const host = state.hosts.find(h => h.id === hid)
-    const tasks = (snap.tasks || []).slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9) || (b.progress || 0) - (a.progress || 0))
-    for (const t of tasks) {
-      if (state.filterStatus !== 'all' && t.status !== state.filterStatus) continue
-      if (state.searchQuery) {
-        const q = state.searchQuery.toLowerCase()
-        if (!(t.name || '').toLowerCase().includes(q) && !(t.projectName || '').toLowerCase().includes(q) && !(host?.name || '').toLowerCase().includes(q)) continue
-      }
-      const pct = Math.round((t.progress || 0) * 100)
-      rows += `<tr>
-        <td class="task-name trunc" title="${jsq(t.name)}">${esc(t.name)}</td>
-        <td>${esc(t.projectName || '-')}</td>
-        <td>${statusBadge(t.status)}</td>
-        <td class="num">${fmtDeadline(t.deadline)}</td>
-        <td><div class="progress"><div class="fill" style="width:${pct}%"></div></div><span class="faint num">${pct}%</span></td>
-        <td class="num">${fmtDuration(t.elapsed)}</td>
-        <td class="num">${fmtDuration(t.eta)}</td>
-        <td>${esc(t.resources || '-')}</td>
-        <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
-        <td>
-          <div class="row" style="gap:4px">
-            ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','suspend')" title="${esc(T('ui.pause'))}">⏸</button>` : ''}
-            ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','resume')" title="${esc(T('ui.resume'))}">▶</button>` : ''}
-            ${t.status === 'error' ? `<button class="btn sm danger" onclick="window._taskOp('${hid}','${t.name}','abort')" title="${esc(T('ui.abort'))}">✕</button>` : ''}
-          </div>
-        </td>
-      </tr>`
-    }
+    for (const t of snap.tasks || []) all.push({ t, hid, host })
+  }
+  all.sort((a, b) => (order[a.t.status] ?? 9) - (order[b.t.status] ?? 9) || (b.t.progress || 0) - (a.t.progress || 0))
+
+  // Counted before the status/search filters are applied, so each tab always
+  // shows how many tasks are in it, not just how many are currently shown.
+  const counts = { all: all.length }
+  for (const { t } of all) counts[t.status] = (counts[t.status] || 0) + 1
+
+  const q = state.searchQuery.toLowerCase()
+  let rows = ''
+  for (const { t, hid, host } of all) {
+    if (state.filterStatus !== 'all' && t.status !== state.filterStatus) continue
+    if (q && !(t.name || '').toLowerCase().includes(q) && !(t.projectName || '').toLowerCase().includes(q) && !(host?.name || '').toLowerCase().includes(q)) continue
+    const pct = Math.round((t.progress || 0) * 100)
+    rows += `<tr>
+      <td class="task-name trunc" title="${jsq(t.name)}">${esc(t.name)}</td>
+      <td>${esc(t.projectName || '-')}</td>
+      <td>${statusBadge(t.status)}</td>
+      <td class="num">${fmtDeadline(t.deadline)}</td>
+      <td><div class="progress"><div class="fill" style="width:${pct}%"></div></div><span class="faint num">${pct}%</span></td>
+      <td class="num">${fmtDuration(t.elapsed)}</td>
+      <td class="num">${fmtDuration(t.eta)}</td>
+      <td>${esc(t.resources || '-')}</td>
+      <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
+      <td>
+        <div class="row" style="gap:4px">
+          ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','suspend')" title="${esc(T('ui.pause'))}">⏸</button>` : ''}
+          ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' && t.status !== 'ready' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','resume')" title="${esc(T('ui.resume'))}">▶</button>` : ''}
+          ${t.status !== 'ready' ? `<button class="btn sm danger" onclick="window._taskOp('${hid}','${t.name}','abort')" title="${esc(T('ui.abort'))}">✕</button>` : ''}
+        </div>
+      </td>
+    </tr>`
   }
   const filterLabels = { all: 'tasks.fAll', running: 'tasks.fRunning', paused: 'tasks.fPaused', queued: 'tasks.fQueued', error: 'tasks.fError' }
   const filterButtons = ['all', 'running', 'paused', 'downloading', 'uploading', 'queued', 'error', 'ready'].map(s =>
-    `<button class="btn sm ${state.filterStatus === s ? 'primary' : ''}" onclick="window._setFilter('${s}')">${esc(T(filterLabels[s] || 'st.' + s))}</button>`
+    `<button class="btn sm ${state.filterStatus === s ? 'primary' : ''}" onclick="window._setFilter('${s}')">${esc(T(filterLabels[s] || 'st.' + s))}${counts[s] ? ` <span class="faint num">${counts[s]}</span>` : ''}</button>`
   ).join('')
   return `<div class="content-inner">
     <div class="card">
@@ -1612,6 +1618,7 @@ window._searchTasks = (q) => {
 }
 
 window._taskOp = async (hostId, name, op) => {
+  if (op === 'abort' && !confirm(T('tasks.abortB', { name }))) return
   try {
     await api('TaskOp', hostId, name, op)
     const done = { suspend: 'tasks.toastPause', resume: 'tasks.toastResume', abort: 'tasks.toastAbort' }
@@ -1997,13 +2004,14 @@ window._doEditHost = async (id) => {
 
 const ENERGY_KEYS = ['cpu_watts', 'gpu_watts', 'grid_gco2_kwh']
 const ECO_KEYS = ['max_ncpus_pct', 'no_gpu']
+const QUEUE_KEYS = ['work_buf_days']
 
 window._openPrefs = async (hostId) => {
   const h = state.hosts.find(x => x.id === hostId)
   if (!h) return
   let prefs = {}
   try { prefs = await api('GetPrefs', hostId) } catch (e) {}
-  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name' && !ENERGY_KEYS.includes(k) && !ECO_KEYS.includes(k)).map(([k, v]) => `${k}=${v}`).join('\n')
+  const txt = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled' && k !== 'host_name' && !ENERGY_KEYS.includes(k) && !ECO_KEYS.includes(k) && !QUEUE_KEYS.includes(k)).map(([k, v]) => `${k}=${v}`).join('\n')
   const hostNameVal = prefs?.host_name || ''
   const enVal = k => prefs?.[k] || ''
   const noGpu = ['1', 'true', 'yes'].includes(String(prefs?.no_gpu || '').toLowerCase())
@@ -2040,6 +2048,11 @@ window._openPrefs = async (hostId) => {
             <label class="row" style="gap:6px;font-size:12px;cursor:pointer"><input type="checkbox" id="eco-no_gpu" ${noGpu ? 'checked' : ''}>${esc(T('energy.ecoGpu'))}</label>
           </div>
           <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('energy.ecoHint'))}</p>
+        </div>
+        <div style="margin-bottom:12px">
+          <label style="font-weight:700;display:block;margin-bottom:4px">${esc(T('queue.title'))}</label>
+          <label style="font-size:12px;display:block">${esc(T('queue.days'))}<input class="input" id="queue-work_buf_days" type="number" min="0.1" step="0.1" value="${jsq(enVal('work_buf_days'))}" placeholder="1" style="width:100%;margin-top:4px"></label>
+          <p class="faint" style="margin:4px 0 0;font-size:12px">${esc(T('queue.hint'))}</p>
         </div>
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
@@ -2080,7 +2093,7 @@ window._savePrefs = async (hostId) => {
     if (i < 0) continue
     const k = line.slice(0, i).trim()
     const v = line.slice(i + 1).trim()
-    if (!k || k === 'real_apps_enabled' || k === 'host_name' || ENERGY_KEYS.includes(k) || ECO_KEYS.includes(k)) continue // has its own checkbox, applied immediately by _toggleRealApps
+    if (!k || k === 'real_apps_enabled' || k === 'host_name' || ENERGY_KEYS.includes(k) || ECO_KEYS.includes(k) || QUEUE_KEYS.includes(k)) continue // has its own field above
     fields.push([k, v])
   }
   fields.push(['real_apps_enabled', $('#real-apps-toggle')?.checked ? '1' : '0'])
@@ -2094,6 +2107,10 @@ window._savePrefs = async (hostId) => {
   for (const k of ENERGY_KEYS) {
     const v = ($('#en-' + k)?.value || '').trim()
     if (v && Number(v) > 0) fields.push([k, v])
+  }
+  {
+    const days = Number(($('#queue-work_buf_days')?.value || '').trim())
+    if (days > 0) fields.push(['work_buf_days', String(days)])
   }
   try {
     await api('SetPrefs', hostId, fields)

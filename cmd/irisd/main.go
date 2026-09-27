@@ -225,6 +225,7 @@ func runDaemon() {
 		HostNameFn:        func() string { return overrides.Get()["host_name"] },
 		GPUEnabledFn:      func() bool { return !overrides.Bool(prefs.NoGPUKey) },
 		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
+		WorkBufDaysFn:     func() float64 { v, _ := overrides.Float(prefs.WorkBufDaysKey); return v },
 	})
 	handler.sched = schedEngine
 	schedEngine.Start()
@@ -238,6 +239,7 @@ func runDaemon() {
 		RealAppsEnabledFn: func() bool { return overrides.BoolDefault(prefs.RealAppsKey, true) },
 		GPUEnabledFn:      func() bool { return !overrides.Bool(prefs.NoGPUKey) },
 	})
+	handler.worker = workerEngine
 	workerEngine.Start()
 	energyStop := make(chan struct{})
 	go runEnergyMeter(st, overrides, energyStop)
@@ -402,6 +404,7 @@ type clientHandler struct {
 	prefs    *prefs.Store
 	xfers    *transferTracker
 	sched    *scheduler.Engine
+	worker   *worker.Engine
 	benching atomic.Bool
 }
 
@@ -600,12 +603,26 @@ func (h *clientHandler) SetNetworkMode(mode string) error {
 func (h *clientHandler) ResultOp(name, op string) error {
 	switch op {
 	case "abort":
+		// Find the task's slot before it disappears from state: once removed,
+		// nothing can tell the worker engine which directory to free.
+		slot := ""
+		for _, r := range h.state.Snapshot().Results {
+			if r.Name == name {
+				slot = r.SlotPath
+				break
+			}
+		}
+		if h.worker != nil {
+			h.worker.Abort(name, slot)
+		}
 		h.state.RemoveResult(name)
 		h.state.AddMessage(fmt.Sprintf("Task aborted: %s", name), "", 1)
 	case "suspend":
 		h.state.SetSuspended(name, true)
 	case "resume":
 		h.state.SetSuspended(name, false)
+	default:
+		return fmt.Errorf("unsupported task operation %q", op)
 	}
 	return nil
 }
