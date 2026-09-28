@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -161,5 +162,48 @@ func TestPlatformNamesForShippedArchitectures(t *testing.T) {
 		if platforms[k] != v {
 			t.Errorf("platform for %s = %q, want %q", k, platforms[k], v)
 		}
+	}
+}
+
+// TestSendRequestToleratesAnUnescapedAmpersandFromTheServer guards against a
+// real project's scheduler reply that lost the whole reply (and, on a live
+// server, the same error every minute): a hand-built message or URL with a
+// literal "&auth" instead of "&amp;auth" made Go's strict XML decoder reject
+// the entire reply ("invalid character entity &auth (no semicolon)"), the
+// exact text seen from https://bitboinc.athena.org.tr's own scheduler. The
+// reference client's own parser accepts this; ours must too.
+func TestSendRequestToleratesAnUnescapedAmpersandFromTheServer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<scheduler_reply>
+<project_name>bitboinc</project_name>
+<message priority="low">see http://bitboinc.athena.org.tr/results.php?userid=1&auth=xyz for details</message>
+</scheduler_reply>`)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	c.SetSchedulerURL(srv.URL)
+	reply, err := c.SendRequest(&Request{Authenticator: "x", Platform: "p", VersionNum: 802})
+	if err != nil {
+		t.Fatalf("a real project's own malformed-but-recoverable reply must not be rejected: %v", err)
+	}
+	if reply.ProjectName != "bitboinc" {
+		t.Errorf("the rest of the reply must still parse, got %+v", reply)
+	}
+	if len(reply.Messages) != 1 || !strings.Contains(reply.Messages[0].Text, "auth=xyz") {
+		t.Errorf("the message carrying the bad entity must still come through, got %+v", reply.Messages)
+	}
+}
+
+// TestSendRequestStillRejectsGenuinelyBrokenXML makes sure the looser decoder
+// does not silently accept a reply that is not just missing an escape.
+func TestSendRequestStillRejectsGenuinelyBrokenXML(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `<scheduler_reply><project_name>oops`) // never closed, truncated mid-document
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL)
+	c.SetSchedulerURL(srv.URL)
+	if _, err := c.SendRequest(&Request{Authenticator: "x", Platform: "p", VersionNum: 802}); err == nil {
+		t.Error("a truncated, unclosed reply must still be an error")
 	}
 }

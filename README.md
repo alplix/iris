@@ -323,6 +323,18 @@ Honest overview of what exists today.
   `<gpu_versions>` elements are accepted but not yet acted on). The **work buffer** — how many
   days of work to request per idle core (BOINC's own "store at least N days" setting, 1 by default) —
   is also now a per-host setting instead of a fixed day, in Global Preferences.
+- **A malformed scheduler reply used to lose the whole thing.** A real project's own hand-built server
+  code occasionally forgets to XML-escape an `&` (e.g. a URL ending up as `...&auth=x` instead of
+  `...&amp;auth=x` inside a `<message>`), which Go's strict XML decoder rejected outright — seen live,
+  every single contact, against a real project (`decode: XML syntax error ... invalid character entity
+  &auth`). The reference client's own parser is lenient about exactly this; the decoder now is too
+  (`Strict = false` — malformed entities are left as-is rather than erroring the whole reply — while
+  still rejecting genuinely broken XML, e.g. an unclosed tag).
+- **Confirmation dialogs now work on every platform.** `window.confirm()` (used for aborting a task,
+  detaching a project, removing a server) silently did nothing on macOS: Wails never registers a
+  `WKUIDelegate` method for it there, so the click had no visible effect at all — no dialog, no error,
+  nothing. All three now ask inside the app's own UI instead of relying on the browser's native dialog,
+  which behaves identically on every platform.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
 - **Running real BOINC applications (unsandboxed, on by default).** A scheduler reply's
