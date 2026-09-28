@@ -259,6 +259,25 @@ jobs:
           if [ -z "$APP" ]; then echo "No .app bundle produced"; exit 1; fi
           mkdir -p "$APP/Contents/Resources"
           cp build/bin/irisd "$APP/Contents/Resources/irisd"
+          chmod +x "$APP/Contents/Resources/irisd"
+
+      # `wails build` already ad-hoc signs the bundle, but that happens BEFORE
+      # irisd is copied in above, which leaves the seal covering everything
+      # except the new Resources/irisd file. Confirmed on real hardware
+      # (2026-09-28): `spctl -a -vv` on a bundle in that state reports "a
+      # sealed resource is missing or invalid" instead of a normal Gatekeeper
+      # "unidentified developer" rejection -- the former can present to users
+      # as "app is damaged, move to Trash" with no override, the latter has
+      # the usual right-click-Open workaround. Re-signing after the embed
+      # (still ad-hoc: no paid Developer ID certificate available here, see
+      # the project notes) restores a self-consistent seal covering irisd too
+      # -- verified with `codesign --verify --deep --strict` passing after
+      # this step where it failed before it.
+      - name: Re-sign bundle (seal now covers the embedded irisd too)
+        run: |
+          APP="$(find build/bin -maxdepth 2 -name '*.app' | head -1)"
+          codesign --force --deep -s - "$APP"
+          codesign --verify --deep --strict -vvvv "$APP"
 
       - name: Stage archive
         working-directory: build/bin
