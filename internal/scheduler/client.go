@@ -648,7 +648,17 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 
 	var reply Reply
 	r := bufio.NewReader(reader)
-	if err := xml.NewDecoder(r).Decode(&reply); err != nil {
+	dec := xml.NewDecoder(r)
+	// Real schedulers occasionally emit malformed XML we do not control —
+	// e.g. a project that builds a message or URL by hand and forgets to
+	// escape "&" ("&auth" instead of "&amp;auth"), which a strict decoder
+	// rejects outright ("invalid character entity"), losing the whole reply.
+	// The reference client's own XML parser is lenient about this for the
+	// same reason; Strict=false makes Go's do the same (malformed entities
+	// are left as-is instead of erroring), while still rejecting genuinely
+	// broken XML (unclosed tags, mismatched elements).
+	dec.Strict = false
+	if err := dec.Decode(&reply); err != nil {
 		raw, _ := io.ReadAll(reader)
 		return nil, fmt.Errorf("decode: %w (raw: %.200s)", err, string(raw))
 	}

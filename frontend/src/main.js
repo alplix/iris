@@ -14,6 +14,7 @@ let state = {
   toasts: [],
   searchQuery: '',
   modal: null,
+  pendingConfirm: null,
   daemonStatus: 'unknown',
   daemonInfo: null,
   stats: {},
@@ -1617,8 +1618,14 @@ window._searchTasks = (q) => {
   if (c && state.page === 'tasks') c.innerHTML = renderTasks()
 }
 
-window._taskOp = async (hostId, name, op) => {
-  if (op === 'abort' && !confirm(T('tasks.abortB', { name }))) return
+window._taskOp = (hostId, name, op) => {
+  if (op === 'abort') {
+    confirmThen(T('tasks.abortT'), T('tasks.abortB', { name }), T('ui.abort'), () => doTaskOp(hostId, name, op))
+    return
+  }
+  doTaskOp(hostId, name, op)
+}
+async function doTaskOp(hostId, name, op) {
   try {
     await api('TaskOp', hostId, name, op)
     const done = { suspend: 'tasks.toastPause', resume: 'tasks.toastResume', abort: 'tasks.toastAbort' }
@@ -1648,14 +1655,18 @@ window._setShare = async (hostId, url, value) => {
   }
 }
 
-window._projectOp = async (hostId, url, op) => {
+window._projectOp = (hostId, url, op) => {
   if (op === 'detach') {
     const proj = (state.snaps[hostId]?.projects || []).find(p => p.url === url)
     const host = state.hosts.find(h => h.id === hostId)
     const msg = `${T('proj.detachW', { p: proj?.name || url, h: host?.name || hostId })}
 ${T('proj.detachN')}`
-    if (!confirm(msg)) return
+    confirmThen(T('proj.detachT'), msg, T('proj.detachBtn'), () => doProjectOp(hostId, url, op))
+    return
   }
+  doProjectOp(hostId, url, op)
+}
+async function doProjectOp(hostId, url, op) {
   try {
     await api('ProjectOp', hostId, url, op)
     const done = { update: 'proj.opUpdate', suspend: 'proj.opSuspend', resume: 'proj.opResume', nomorework: 'proj.opNoMore', allowmorework: 'proj.opAllow', detach: 'proj.opDetach' }
@@ -1701,13 +1712,15 @@ window._setAllMode = async (op, mode) => {
   }
 }
 
-window._removeHost = async (id) => {
+window._removeHost = (id) => {
   const h = state.hosts.find(x => x.id === id)
-  if (!h || !confirm(T('hosts.removeB', { n: h.name, h: h.host }))) return
-  await api('RemoveHost', id)
-  delete state.snaps[id]
-  await refreshHosts()
-  toast(T('hosts.removed', { h: h.name }), 'ok')
+  if (!h) return
+  confirmThen(T('hosts.removeT'), T('hosts.removeB', { n: h.name, h: h.host }), T('common.del'), async () => {
+    await api('RemoveHost', id)
+    delete state.snaps[id]
+    await refreshHosts()
+    toast(T('hosts.removed', { h: h.name }), 'ok')
+  })
 }
 
 window._testHost = async (id) => {
@@ -1971,6 +1984,37 @@ window._doAttach = async () => {
 }
 
 window._closeModal = () => { state.modal = null; render() }
+
+// A modal replacement for the browser's own confirm(): some webviews (WKWebView
+// on macOS here, since Wails never registers a UI delegate for it) never show
+// the native dialog at all, so a button gated on window.confirm() did nothing
+// whatsoever when clicked — no dialog, no action, no error. This asks the same
+// question inside the app's own UI, which every platform renders the same way.
+function confirmThen(title, body, actionLabel, action) {
+  state.pendingConfirm = action
+  state.modal = `
+    <div class="modal-overlay" onclick="if(event.target===this)window._cancelConfirm()">
+      <div class="modal" style="max-width:440px">
+        <div class="modal-head"><h3>${esc(title)}</h3><button class="btn icon" onclick="window._cancelConfirm()">✕</button></div>
+        <p style="white-space:pre-line;font-size:14px;line-height:1.5;margin:0 0 4px">${esc(body)}</p>
+        <div class="modal-foot">
+          <div style="flex:1"></div>
+          <button class="btn" onclick="window._cancelConfirm()">${esc(T('common.cancel'))}</button>
+          <button class="btn danger" onclick="window._runConfirm()">${esc(actionLabel)}</button>
+        </div>
+      </div>
+    </div>
+  `
+  render()
+}
+window._cancelConfirm = () => { state.pendingConfirm = null; state.modal = null; render() }
+window._runConfirm = () => {
+  const action = state.pendingConfirm
+  state.pendingConfirm = null
+  state.modal = null
+  render()
+  if (action) action()
+}
 
 window._doAddHost = async () => {
   const name = $('#add-name')?.value || T('ui.unnamed')
