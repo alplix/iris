@@ -2,6 +2,10 @@ package state
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +13,7 @@ import (
 	"time"
 
 	"github.com/alplix/iris/internal/detect"
+	"github.com/alplix/iris/internal/fsutil"
 	"github.com/alplix/iris/internal/product"
 )
 
@@ -281,13 +286,43 @@ func New(dataDir string) *State {
 func (s *State) Load() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	data, err := os.ReadFile(s.stateFP)
-	if err != nil {
+	var firstErr error
+	for i, fp := range []string{s.stateFP, s.stateFP + ".bak"} {
+		data, err := os.ReadFile(fp)
+		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) && firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		// Parse into a scratch value first: a half-read file must never leave a
+		// half-filled state behind that the next Save() would write out as if
+		// it were everything the person has.
+		if err := xml.Unmarshal(data, new(State)); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%s: %w", filepath.Base(fp), err)
+			}
+			if i == 0 {
+				// Keep the unreadable file for inspection instead of letting the
+				// next save overwrite it.
+				os.Rename(fp, fp+".corrupt")
+			}
+			continue
+		}
+		if err := xml.Unmarshal(data, s); err != nil {
+			return err
+		}
+		if i == 1 {
+			log.Printf("[State] client_state.xml was unreadable (%v); restored the previous copy", firstErr)
+		}
+		s.afterLoad()
 		return nil
 	}
-	if err := xml.Unmarshal(data, s); err != nil {
-		return err
-	}
+	return firstErr
+}
+
+// afterLoad fixes up what a freshly read state needs before use.
+func (s *State) afterLoad() {
 	// Transfers are live objects; anything persisted belongs to a previous run.
 	s.Transfers = nil
 	// Message numbers must keep counting from where the last run stopped, or
@@ -298,7 +333,6 @@ func (s *State) Load() error {
 			s.seqno = m.Seqno
 		}
 	}
-	return nil
 }
 
 func (s *State) Save() error {
@@ -316,7 +350,7 @@ func (s *State) saveLocked() error {
 	buf.WriteString(xml.Header)
 	buf.Write(data)
 	buf.WriteString("\n")
-	return os.WriteFile(s.stateFP, []byte(buf.String()), 0o644)
+	return fsutil.WriteFile(s.stateFP, []byte(buf.String()), 0o644, true)
 }
 
 func (s *State) RLock()   { s.mu.RLock() }

@@ -509,11 +509,16 @@ func (m *Mock) GetPrefsOverride() map[string]string {
 	return out
 }
 
+// SetPrefsOverride replaces every override, as a real client does (and drops
+// the ones left empty), so the demo behaves like the thing it stands in for.
 func (m *Mock) SetPrefsOverride(fields map[string]string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.prefs = map[string]string{}
 	for k, v := range fields {
-		m.prefs[k] = v
+		if v != "" {
+			m.prefs[k] = v
+		}
 	}
 }
 

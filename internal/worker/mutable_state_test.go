@@ -76,11 +76,6 @@ func (m *mutableState) AddMessage(body, project string, pri int) {
 	defer m.mu.Unlock()
 	m.msgs = append(m.msgs, body)
 }
-func (m *mutableState) messages() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return append([]string(nil), m.msgs...)
-}
 func (m *mutableState) Save()                                     {}
 func (m *mutableState) SetAppCPUTime(name string, cpu float64)    {}
 func (m *mutableState) IsSuspended(name string) bool              { return false }

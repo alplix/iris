@@ -3,15 +3,15 @@
 package detect
 
 import (
-	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // getDiskUnix falls back to df on systems whose syscall package has no
 // portable statfs (OpenBSD, NetBSD). Windows never calls it.
 func getDiskUnix(path string) (total, free float64) {
-	out, err := exec.Command("df", "-k", path).Output()
+	out, err := run(10*time.Second, "df", "-k", path)
 	if err != nil {
 		return 0, 0
 	}

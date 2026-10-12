@@ -1,7 +1,6 @@
 package scheduler
 
 import (
-	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -646,9 +645,14 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 		reader = gz
 	}
 
+	// A reply is read in full (bounded, so a hostile or broken server cannot
+	// stream forever) so a decode failure can show what the server really sent.
+	body, err := io.ReadAll(io.LimitReader(reader, maxReplyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("read reply: %w", err)
+	}
 	var reply Reply
-	r := bufio.NewReader(reader)
-	dec := xml.NewDecoder(r)
+	dec := xml.NewDecoder(bytes.NewReader(body))
 	// Real schedulers occasionally emit malformed XML we do not control —
 	// e.g. a project that builds a message or URL by hand and forgets to
 	// escape "&" ("&auth" instead of "&amp;auth"), which a strict decoder
@@ -659,12 +663,14 @@ func (c *Client) SendRequest(req *Request) (*Reply, error) {
 	// broken XML (unclosed tags, mismatched elements).
 	dec.Strict = false
 	if err := dec.Decode(&reply); err != nil {
-		raw, _ := io.ReadAll(reader)
-		return nil, fmt.Errorf("decode: %w (raw: %.200s)", err, string(raw))
+		return nil, fmt.Errorf("decode: %w (raw: %.200s)", err, string(body))
 	}
 
 	return &reply, nil
 }
+
+// maxReplyBytes bounds how much of one scheduler reply is read.
+const maxReplyBytes = 64 << 20
 
 // ProgressFunc reports transfer progress; total is 0 when the size is unknown.
 type ProgressFunc func(done, total int64)

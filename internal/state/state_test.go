@@ -1,6 +1,8 @@
 package state
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -198,5 +200,78 @@ func TestAddEnergyAccumulatesPerDayAndFlagsModelledGPU(t *testing.T) {
 	}
 	if e := s.Energy[0]; e.CPUWh != 15 || e.GPUWh != 50 || e.GPUEstWh != 30 {
 		t.Errorf("day totals wrong: %+v", e)
+	}
+}
+
+func TestSaveLeavesNoTempFileAndKeepsThePreviousCopy(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	s.AddProject(Project{Name: "First", MasterURL: "https://one.example"})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	s.AddProject(Project{Name: "Second", MasterURL: "https://two.example"})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "client_state.xml.tmp")); err == nil {
+		t.Fatal("a temporary file was left behind")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "client_state.xml.bak")); err != nil {
+		t.Fatalf("the previous copy was not kept: %v", err)
+	}
+}
+
+func TestLoadFallsBackToThePreviousCopyWhenTheStateIsTruncated(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	s.AddProject(Project{Name: "Keep me", MasterURL: "https://one.example"})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(); err != nil { // the second save turns the first into the backup
+		t.Fatal(err)
+	}
+	main := filepath.Join(dir, "client_state.xml")
+	data, _ := os.ReadFile(main)
+	if err := os.WriteFile(main, data[:len(data)/2], 0o644); err != nil { // a crash mid-write
+		t.Fatal(err)
+	}
+
+	got := New(dir)
+	if err := got.Load(); err != nil {
+		t.Fatalf("a usable backup exists, Load should succeed: %v", err)
+	}
+	if len(got.Projects) != 1 || got.Projects[0].Name != "Keep me" {
+		t.Fatalf("the backup was not restored: %+v", got.Projects)
+	}
+	if _, err := os.Stat(main + ".corrupt"); err != nil {
+		t.Fatal("the unreadable file should be kept for inspection")
+	}
+}
+
+func TestLoadOfACorruptStateWithoutABackupReportsItAndLoadsNothingHalfway(t *testing.T) {
+	dir := t.TempDir()
+	good := New(dir)
+	good.AddProject(Project{Name: "P", MasterURL: "https://one.example"})
+	if err := good.Save(); err != nil {
+		t.Fatal(err)
+	}
+	main := filepath.Join(dir, "client_state.xml")
+	data, _ := os.ReadFile(main)
+	os.WriteFile(main, data[:len(data)/2], 0o644)
+
+	got := New(dir)
+	if err := got.Load(); err == nil {
+		t.Fatal("a truncated state with no backup must be reported")
+	}
+	if len(got.Projects) != 0 {
+		t.Fatalf("half a file must not be loaded: %+v", got.Projects)
+	}
+}
+
+func TestLoadWithNoStateFileIsNotAnError(t *testing.T) {
+	if err := New(t.TempDir()).Load(); err != nil {
+		t.Fatal(err)
 	}
 }

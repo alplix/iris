@@ -372,3 +372,41 @@ func TestInstructionsAskForADirectAnswerAndNeverInviteAnEcho(t *testing.T) {
 		t.Error("the user's own message must come last, clearly labelled")
 	}
 }
+
+func TestSetPrefsKeepsTheOtherOverridesInPlace(t *testing.T) {
+	mgr := newTestManager(t)
+	host := mgr.Store.List()[0]
+	if err := mgr.PrefsSet(host.ID, [][2]string{{"cpu_watts", "80"}, {"work_buf_days", "2"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	s := withAssistant(t, mgr, replyWith(`ACTION: {"tool":"set_prefs","host":"`+host.Name+`","fields":{"max_ncpus_pct":"50"}}`))
+	r, err := s.Ask(context.Background(), "cpu kullanimini yariya indir")
+	if err != nil || r.Action == nil {
+		t.Fatalf("expected an action card, got %+v (%v)", r, err)
+	}
+	if err := s.Confirm(r.Action.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := mgr.PrefsGet(host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["max_ncpus_pct"] != "50" || got["cpu_watts"] != "80" || got["work_buf_days"] != "2" {
+		t.Fatalf("changing one preference must not drop the others, got %v", got)
+	}
+}
+
+func TestSetPrefsCannotSwitchOnRealApplications(t *testing.T) {
+	mgr := newTestManager(t)
+	hostName := mgr.Store.List()[0].Name
+	s := withAssistant(t, mgr, replyWith(`ACTION: {"tool":"set_prefs","host":"`+hostName+`","fields":{"real_apps_enabled":"1"}}`))
+	r, err := s.Ask(context.Background(), "gercek uygulamalari ac")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Clarify == nil || r.Clarify.Kind != "invalid" {
+		t.Fatalf("real_apps_enabled must not be settable from chat, got %+v", r)
+	}
+}
