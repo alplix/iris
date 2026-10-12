@@ -89,9 +89,20 @@ function renderToasts() {
   wrap.innerHTML = state.toasts.map(t => `<div class="toast ${t.type}">${esc(t.msg)}</div>`).join('')
 }
 
-function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML }
+// esc makes a value safe both as element text and inside a quoted attribute
+// (it escapes quotes too, which a textContent round trip does not).
+const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ESC_MAP[c]) }
 
 function jsq(s) { return esc(String(s ?? '')) }
+// jsarg makes a value safe as a single-quoted string argument inside an inline
+// event handler (onclick="f('...')"). The browser decodes the attribute's HTML
+// entities BEFORE it runs the script, so the value has to be escaped for the
+// script first (a \uXXXX escape for anything that could end the string or the
+// tag) and only then for HTML.
+function jsarg(s) {
+  return esc(String(s ?? '').replace(/[\\'"<>&\n\r\u2028\u2029]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')))
+}
 
 function fmtCredit(v) {
   v = v || 0
@@ -508,9 +519,9 @@ function renderTasks() {
       <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
       <td>
         <div class="row" style="gap:4px">
-          ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','suspend')" title="${esc(T('ui.pause'))}">⏸</button>` : ''}
-          ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' && t.status !== 'ready' ? `<button class="btn sm" onclick="window._taskOp('${hid}','${t.name}','resume')" title="${esc(T('ui.resume'))}">▶</button>` : ''}
-          ${t.status !== 'ready' ? `<button class="btn sm danger" onclick="window._taskOp('${hid}','${t.name}','abort')" title="${esc(T('ui.abort'))}">✕</button>` : ''}
+          ${t.status === 'running' ? `<button class="btn sm" onclick="window._taskOp('${jsarg(hid)}','${jsarg(t.name)}','suspend')" title="${esc(T('ui.pause'))}">⏸</button>` : ''}
+          ${t.status !== 'running' && t.status !== 'downloading' && t.status !== 'uploading' && t.status !== 'ready' ? `<button class="btn sm" onclick="window._taskOp('${jsarg(hid)}','${jsarg(t.name)}','resume')" title="${esc(T('ui.resume'))}">▶</button>` : ''}
+          ${t.status !== 'ready' ? `<button class="btn sm danger" onclick="window._taskOp('${jsarg(hid)}','${jsarg(t.name)}','abort')" title="${esc(T('ui.abort'))}">✕</button>` : ''}
         </div>
       </td>
     </tr>`
@@ -553,7 +564,7 @@ function renderProjects() {
           </div>
           <div class="row faint" style="gap:6px;font-size:12px;align-items:center">
             <span>${esc(T('proj.share'))}:</span>
-            <input class="input" type="number" min="0" step="1" value="${Number(p.share || 100)}" style="width:72px;padding:2px 6px;font-size:12px" onchange="window._setShare('${hid}','${p.url}',this.value)" title="${jsq(T('proj.shareHint'))}">
+            <input class="input" type="number" min="0" step="1" value="${Number(p.share || 100)}" style="width:72px;padding:2px 6px;font-size:12px" onchange="window._setShare('${jsarg(hid)}','${jsarg(p.url)}',this.value)" title="${jsq(T('proj.shareHint'))}">
             <span class="faint">${esc(shareLabel(snap, p))}</span>
           </div>
           ${(() => {
@@ -570,15 +581,15 @@ function renderProjects() {
           </div>
           <div class="row wrap" style="gap:4px;margin-top:4px">
             ${p.suspended
-              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','resume')">${esc(T('proj.btnResume'))}</button>`
-              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','suspend')">${esc(T('proj.btnSuspend'))}</button>`
+              ? `<button class="btn sm" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','resume')">${esc(T('proj.btnResume'))}</button>`
+              : `<button class="btn sm" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','suspend')">${esc(T('proj.btnSuspend'))}</button>`
             }
-            <button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','update')">${esc(T('proj.btnUpdate'))}</button>
+            <button class="btn sm" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','update')">${esc(T('proj.btnUpdate'))}</button>
             ${p.noMoreWork
-              ? `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','allowmorework')">${esc(T('proj.btnAllow'))}</button>`
-              : `<button class="btn sm" onclick="window._projectOp('${hid}','${p.url}','nomorework')">${esc(T('proj.btnNoMore'))}</button>`
+              ? `<button class="btn sm" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','allowmorework')">${esc(T('proj.btnAllow'))}</button>`
+              : `<button class="btn sm" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','nomorework')">${esc(T('proj.btnNoMore'))}</button>`
             }
-            <button class="btn sm danger" onclick="window._projectOp('${hid}','${p.url}','detach')">${esc(T('proj.detachBtn'))}</button>
+            <button class="btn sm danger" onclick="window._projectOp('${jsarg(hid)}','${jsarg(p.url)}','detach')">${esc(T('proj.detachBtn'))}</button>
           </div>
         </div>
       `
@@ -606,8 +617,8 @@ function renderTransfers() {
         <td><span class="chip plain trunc">${esc(host?.name || hid)}</span></td>
         <td>
           <div class="row" style="gap:4px">
-            ${t.paused ? `<button class="btn sm" onclick="window._transferOp('${hid}','${t.name}','retry')">${esc(T('trns.retry'))}</button>` : ''}
-            <button class="btn sm danger" onclick="window._transferOp('${hid}','${t.name}','abort')">${esc(T('ui.abort'))}</button>
+            ${t.paused ? `<button class="btn sm" onclick="window._transferOp('${jsarg(hid)}','${jsarg(t.name)}','retry')">${esc(T('trns.retry'))}</button>` : ''}
+            <button class="btn sm danger" onclick="window._transferOp('${jsarg(hid)}','${jsarg(t.name)}','abort')">${esc(T('ui.abort'))}</button>
           </div>
         </td>
       </tr>`
@@ -1091,9 +1102,9 @@ function renderHosts() {
             <div><div style="font-weight:700;font-size:15px">${esc(h.name)}</div><div class="faint num">${esc(h.host)}:${h.port}</div></div>
           </div>
           <div class="row" style="gap:6px">
-            <button class="btn sm" onclick="window._showEditHost('${h.id}')">${esc(T('common.edit'))}</button>
-            <button class="btn sm" onclick="window._testHost('${h.id}')">${esc(T('hosts.test'))}</button>
-            <button class="btn sm danger" onclick="window._removeHost('${h.id}')">${esc(T('common.del'))}</button>
+            <button class="btn sm" onclick="window._showEditHost('${jsarg(h.id)}')">${esc(T('common.edit'))}</button>
+            <button class="btn sm" onclick="window._testHost('${jsarg(h.id)}')">${esc(T('hosts.test'))}</button>
+            <button class="btn sm danger" onclick="window._removeHost('${jsarg(h.id)}')">${esc(T('common.del'))}</button>
           </div>
         </div>
         ${online ? `
@@ -1169,20 +1180,20 @@ function renderSettings() {
       <div class="card" style="display:flex;flex-direction:column;gap:10px">
         <div class="card-head"><h3 class="card-title" style="font-size:14px">${esc(h.name)}</h3><span class="chip plain">${esc(T('ui.overrides', { n: prefCount }))}</span></div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          ${modeBtn('always', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','always')`)}
-          ${modeBtn('auto', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','auto')`)}
-          ${modeBtn('never', snap.taskMode, `window._setClientOp('${h.id}','setRunMode','never')`)}
+          ${modeBtn('always', snap.taskMode, `window._setClientOp('${jsarg(h.id)}','setRunMode','always')`)}
+          ${modeBtn('auto', snap.taskMode, `window._setClientOp('${jsarg(h.id)}','setRunMode','auto')`)}
+          ${modeBtn('never', snap.taskMode, `window._setClientOp('${jsarg(h.id)}','setRunMode','never')`)}
           <span class="faint" style="font-size:12px">${esc(T('ui.runMode'))}</span>
         </div>
         <div class="row" style="gap:8px;flex-wrap:wrap">
-          ${modeBtn('always', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','always')`)}
-          ${modeBtn('auto', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','auto')`)}
-          ${modeBtn('never', snap.netMode, `window._setClientOp('${h.id}','setNetworkMode','never')`)}
+          ${modeBtn('always', snap.netMode, `window._setClientOp('${jsarg(h.id)}','setNetworkMode','always')`)}
+          ${modeBtn('auto', snap.netMode, `window._setClientOp('${jsarg(h.id)}','setNetworkMode','auto')`)}
+          ${modeBtn('never', snap.netMode, `window._setClientOp('${jsarg(h.id)}','setNetworkMode','never')`)}
           <span class="faint" style="font-size:12px">${esc(T('set.netTitle'))}</span>
         </div>
         <div class="row" style="gap:6px;flex-wrap:wrap">
-          <button class="btn sm" onclick="window._setClientOp('${h.id}','benchmarks','')">${esc(T('set.bench'))}</button>
-          <button class="btn sm" onclick="window._openPrefs('${h.id}')">${esc(T('ui.editPrefs'))}</button>
+          <button class="btn sm" onclick="window._setClientOp('${jsarg(h.id)}','benchmarks','')">${esc(T('set.bench'))}</button>
+          <button class="btn sm" onclick="window._openPrefs('${jsarg(h.id)}')">${esc(T('ui.editPrefs'))}</button>
         </div>
       </div>
     `
@@ -1766,7 +1777,7 @@ window._showEditHost = (id) => {
         <div class="field"><label class="label">${esc(T('hosts.pass'))}</label><input class="input" id="edit-pass" type="password" value="${jsq(h.password)}" placeholder="${esc(T('hosts.passPh'))}"></div>
         <div class="modal-foot">
           <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
-          <button class="btn primary" onclick="window._doEditHost('${h.id}')">${esc(T('hosts.save'))}</button>
+          <button class="btn primary" onclick="window._doEditHost('${jsarg(h.id)}')">${esc(T('hosts.save'))}</button>
         </div>
       </div>
     </div>
@@ -1848,8 +1859,8 @@ function renderCatalogDetail() {
     <div style="color:var(--text-soft)">${esc(p.description || '')}</div>
     ${p.home ? `<div class="faint" style="font-size:12px">${esc(p.home)}</div>` : ''}
     <div class="row wrap" style="gap:8px;margin:4px 0">
-      <button class="btn sm" onclick="window._openUrl('${jsq(web)}')">${esc(T('cat.website'))} ↗</button>
-      <button class="btn sm" onclick="window._openUrl('${jsq(p.url.replace(/\/?$/, '/') + 'create_account_form.php')}')">${esc(T('cat.createAccount'))} ↗</button>
+      <button class="btn sm" onclick="window._openUrl('${jsarg(web)}')">${esc(T('cat.website'))} ↗</button>
+      <button class="btn sm" onclick="window._openUrl('${jsarg(p.url.replace(/\/?$/, '/') + 'create_account_form.php')}')">${esc(T('cat.createAccount'))} ↗</button>
     </div>
     <div style="display:flex;flex-direction:column;gap:3px;font-size:12px">${lines.join('')}</div>
   </div>`
@@ -2066,7 +2077,7 @@ window._openPrefs = async (hostId) => {
         <div class="modal-head"><h3>${esc(T('ui.globalPrefs', { name: h.name }))}</h3><button class="btn icon" onclick="window._closeModal()">✕</button></div>
         <div class="card" style="background:var(--bg-warn,rgba(234,88,12,0.08));border:1px solid rgba(234,88,12,0.35);margin-bottom:12px">
           <label class="row" style="gap:8px;align-items:flex-start;cursor:pointer">
-            <input type="checkbox" id="real-apps-toggle" ${realAppsOn ? 'checked' : ''} onchange="window._toggleRealApps('${hostId}', this.checked)" style="margin-top:3px">
+            <input type="checkbox" id="real-apps-toggle" ${realAppsOn ? 'checked' : ''} onchange="window._toggleRealApps('${jsarg(hostId)}', this.checked)" style="margin-top:3px">
             <span style="font-weight:700">${esc(T('ui.realAppsToggle'))}</span>
           </label>
           <p class="faint" style="margin:6px 0 0;font-size:12px">${esc(T('ui.realAppsWarning'))}</p>
@@ -2101,10 +2112,10 @@ window._openPrefs = async (hostId) => {
         <div class="faint" style="font-size:12px;margin-bottom:10px">${esc(T('ui.prefsHelp'))}</div>
         <textarea class="input kv" id="prefs-text" rows="14" spellcheck="false">${jsq(txt)}</textarea>
         <div class="modal-foot">
-          <button class="btn" onclick="window._resetPrefs('${hostId}')">${esc(T('ui.resetDefaults'))}</button>
+          <button class="btn" onclick="window._resetPrefs('${jsarg(hostId)}')">${esc(T('ui.resetDefaults'))}</button>
           <div style="flex:1"></div>
           <button class="btn" onclick="window._closeModal()">${esc(T('common.cancel'))}</button>
-          <button class="btn primary" onclick="window._savePrefs('${hostId}')">${esc(T('hosts.save'))}</button>
+          <button class="btn primary" onclick="window._savePrefs('${jsarg(hostId)}')">${esc(T('hosts.save'))}</button>
         </div>
       </div>
     </div>
@@ -2118,8 +2129,8 @@ window._openPrefs = async (hostId) => {
 // answers it, the same way the AI assistant's own consent switch does.
 window._toggleRealApps = async (hostId, on) => {
   try {
-    let prefs = {}
-    try { prefs = await api('GetPrefs', hostId) } catch (e) {}
+    // If the current set cannot be read, stop: saving only this key would wipe the rest.
+    const prefs = await api('GetPrefs', hostId)
     const fields = Object.entries(prefs || {}).filter(([k]) => k !== 'real_apps_enabled').map(([k, v]) => [k, v])
     fields.push(['real_apps_enabled', on ? '1' : '0'])
     await api('SetPrefs', hostId, fields)

@@ -598,6 +598,7 @@ func (e *Engine) Abort(name, slot string) {
 	e.mu.Unlock()
 	if running {
 		terminateProcess(cmd)
+		go e.killIfStillRunning(name, cmd, abortGrace)
 	}
 	if !active {
 		e.takeAborted(name)
@@ -605,6 +606,28 @@ func (e *Engine) Abort(name, slot string) {
 			e.cache.FreeSlot(slot)
 		}
 	}
+}
+
+// abortGrace is how long an aborted program gets to exit after the polite
+// termination request before it is killed outright.
+const abortGrace = 10 * time.Second
+
+// killIfStillRunning force-kills cmd if it is still the running process for
+// name after grace. A program that ignores the termination request would
+// otherwise keep its slot (and its CPU) forever, with no way left to stop it.
+func (e *Engine) killIfStillRunning(name string, cmd *exec.Cmd, grace time.Duration) {
+	deadline := time.Now().Add(grace)
+	for time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+		e.mu.RLock()
+		cur := e.running[name]
+		e.mu.RUnlock()
+		if cur != cmd {
+			return
+		}
+	}
+	log.Printf("[Worker] %s ignored the request to stop, killing it", name)
+	cmd.Process.Kill()
 }
 
 // warnCacheFull logs a full cache at most once every ten minutes per class.
@@ -1548,25 +1571,88 @@ func classifyExit(err error) int {
 	return ExitComputeError
 }
 
+// parseCmdLine splits a task's command line into arguments. On Unix it
+// follows the reference client's own parse_command_line (lib/str_util.cpp)
+// exactly: a token that STARTS with a single or double quote runs to the
+// matching quote, and quotes anywhere else in a token are ordinary characters.
+// Windows hands the command line to the program as text, which the program's
+// runtime splits by its own rules (double quotes group words and are removed).
 func parseCmdLine(s string) []string {
+	if runtime.GOOS == "windows" {
+		return splitQuotedWords(s)
+	}
+	return splitLikeBOINC(s)
+}
+
+func isCmdSpace(c byte) bool {
+	return c == ' ' || (c >= '\t' && c <= '\r')
+}
+
+func splitLikeBOINC(s string) []string {
+	const (
+		notInToken = iota
+		inSingle
+		inDouble
+		inUnquoted
+	)
 	var args []string
-	var current string
+	state, start := notInToken, 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch state {
+		case notInToken:
+			switch {
+			case isCmdSpace(c):
+			case c == '\'':
+				start, state = i+1, inSingle
+			case c == '"':
+				start, state = i+1, inDouble
+			default:
+				start, state = i, inUnquoted
+			}
+		case inSingle, inDouble:
+			quote := byte('\'')
+			if state == inDouble {
+				quote = '"'
+			}
+			// The reference parser never looks at the first character after an
+			// opening quote as a closing one, so an empty "" is not a token.
+			if c == quote && i > start {
+				args = append(args, s[start:i])
+				state = notInToken
+			}
+		case inUnquoted:
+			if isCmdSpace(c) {
+				args = append(args, s[start:i])
+				state = notInToken
+			}
+		}
+	}
+	if state != notInToken {
+		args = append(args, s[start:])
+	}
+	return args
+}
+
+func splitQuotedWords(s string) []string {
+	var args []string
+	var current strings.Builder
 	inQuote := false
 	for _, c := range s {
 		switch {
 		case c == '"':
 			inQuote = !inQuote
 		case c == ' ' && !inQuote:
-			if current != "" {
-				args = append(args, current)
-				current = ""
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
 			}
 		default:
-			current += string(c)
+			current.WriteRune(c)
 		}
 	}
-	if current != "" {
-		args = append(args, current)
+	if current.Len() > 0 {
+		args = append(args, current.String())
 	}
 	return args
 }

@@ -125,3 +125,33 @@ func TestAllocSlotIsUniqueUnderConcurrency(t *testing.T) {
 		seen[s] = true
 	}
 }
+
+func TestFreeSlotRemovesARealSlotButNothingElse(t *testing.T) {
+	m, dir := newMgr(t, Config{SeparateSlots: true})
+	slot, err := m.AllocSlot(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(slot, "work.dat"), 10)
+	if err := m.FreeSlot(slot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(slot); err == nil {
+		t.Fatal("the slot should be gone")
+	}
+
+	// Paths a damaged state could name must be refused and left alone.
+	precious := filepath.Join(dir, "projects", "keep.txt")
+	put(t, precious, 10)
+	for _, bad := range []string{dir, filepath.Join(dir, "projects"), filepath.Dir(dir), m.SlotDir(false), m.SlotDir(true), filepath.Join(m.SlotDir(false), "..", "projects")} {
+		if err := m.FreeSlot(bad); err == nil {
+			t.Errorf("FreeSlot(%q) should have been refused", bad)
+		}
+	}
+	if _, err := os.Stat(precious); err != nil {
+		t.Fatalf("a refused FreeSlot must not touch anything: %v", err)
+	}
+	if err := m.FreeSlot(""); err != nil {
+		t.Errorf("an empty slot is nothing to free: %v", err)
+	}
+}

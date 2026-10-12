@@ -335,6 +335,15 @@ Honest overview of what exists today.
   `WKUIDelegate` method for it there, so the click had no visible effect at all — no dialog, no error,
   nothing. All three now ask inside the app's own UI instead of relying on the browser's native dialog,
   which behaves identically on every platform.
+- **Safer on-disk data and a tougher interface.** The client state, account files, preferences and host
+  id are written atomically (a crash or power loss can no longer leave a half-written file), and a
+  damaged state falls back to the previous copy instead of starting empty. Names and addresses a
+  project sends are escaped everywhere the interface shows them, including inside buttons. An
+  unauthenticated connection to the client's remote-control port is limited in size and time. The
+  assistant's preference changes keep your other settings (they used to replace all of them) and can
+  no longer switch on real applications. Aborting a program that ignores the stop request now kills it
+  after ten seconds, a task's command line is split exactly like the reference client does, and
+  hardware probes can no longer hang start-up.
 - The optional AI assistant (off by default): fleet Q&A and confirmation-gated control, backed by
   Tilvar AI. See [AI Assistant](#ai-assistant) above.
 - **Running real BOINC applications (unsandboxed, on by default).** A scheduler reply's

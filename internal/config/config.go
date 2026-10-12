@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/alplix/iris/internal/fsutil"
 	"github.com/alplix/iris/internal/product"
 )
 
@@ -100,5 +101,5 @@ func Save(cfg *Config, path string) error {
 	buf.WriteString(xml.Header)
 	buf.Write(data)
 	buf.WriteString("\n")
-	return os.WriteFile(path, []byte(buf.String()), 0o644)
+	return fsutil.WriteFile(path, []byte(buf.String()), 0o644, false)
 }

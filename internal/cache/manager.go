@@ -119,8 +119,29 @@ func (m *Manager) AllocSlot(gpu bool) (string, error) {
 	return "", fmt.Errorf("no free slots in %s", base)
 }
 
+// FreeSlot deletes a slot directory. The path comes from the saved state, so it
+// is only removed if it really is a slot below one of the slot roots: a
+// damaged or edited state must never be able to point this at anything else.
 func (m *Manager) FreeSlot(slot string) error {
+	if slot == "" {
+		return nil
+	}
+	if !m.isSlotPath(slot) {
+		return fmt.Errorf("refusing to delete %q: not a slot directory", slot)
+	}
 	return os.RemoveAll(slot)
+}
+
+func (m *Manager) isSlotPath(p string) bool {
+	p = filepath.Clean(p)
+	for _, base := range []string{m.cpuDir, m.gpuDir} {
+		rel, err := filepath.Rel(filepath.Clean(base), p)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func (m *Manager) GetDiskUsage() *DiskInfo {

@@ -1,12 +1,16 @@
 package detect
 
 import (
+	"math"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-var benchSink float64
+// benchSink keeps the compiler from discarding the busy loop; it is written
+// by every core at once, so it must be atomic.
+var benchSink atomic.Uint64
 
 // Benchmark measures floating-point throughput by running one busy loop per
 // core for roughly d and returns the summed FLOPS of all cores.
@@ -52,6 +56,6 @@ func spin(d time.Duration) float64 {
 		}
 		flops += batch * 8
 	}
-	benchSink += x + y
+	benchSink.Store(math.Float64bits(x + y))
 	return flops / time.Since(start).Seconds()
 }

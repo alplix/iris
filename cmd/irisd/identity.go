@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/alplix/iris/internal/fsutil"
 )
 
 var cpidRe = regexp.MustCompile(`^[0-9a-f]{32}$`)
@@ -31,7 +33,7 @@ func loadOrCreateHostCPID(dataDir string) string {
 	}
 	sum := md5.Sum(b[:])
 	id := hex.EncodeToString(sum[:])
-	if err := os.WriteFile(fp, []byte(id+"\n"), 0o644); err != nil {
+	if err := fsutil.WriteFile(fp, []byte(id+"\n"), 0o644, false); err != nil {
 		fatal("cannot write %s: %v", fp, err)
 	}
 	return id

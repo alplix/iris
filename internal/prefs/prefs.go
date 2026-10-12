@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/alplix/iris/internal/fsutil"
 )
 
 const fileName = "global_prefs_override.xml"
@@ -102,7 +104,7 @@ func (s *Store) Set(pairs [][2]string) error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(s.path, marshal(next), 0o644); err != nil {
+	if err := fsutil.WriteFile(s.path, marshal(next), 0o644, false); err != nil {
 		return err
 	}
 	s.vals = next

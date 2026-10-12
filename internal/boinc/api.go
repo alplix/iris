@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -226,14 +227,14 @@ func boincPasswdHash(password, email string) string {
 
 func LookupAccount(baseURL, email, password string) (string, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	url := strings.TrimSuffix(baseURL, "/") + "/lookup_account.php?email_addr=" +
+	reqURL := strings.TrimSuffix(baseURL, "/") + "/lookup_account.php?email_addr=" +
 		escapeQuery(email) + "&passwd_hash=" + boincPasswdHash(password, email)
-	resp, err := client.Get(url)
+	resp, err := client.Get(reqURL)
 	if err != nil {
 		return "", fmt.Errorf("account lookup failed: %w", err)
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if m := authRe.FindStringSubmatch(string(body)); m != nil && m[1] != "" {
 		return m[1], nil
 	}
@@ -246,7 +247,4 @@ func LookupAccount(baseURL, email, password string) (string, error) {
 	return "", fmt.Errorf("account not found or wrong password on %s", baseURL)
 }
 
-func escapeQuery(s string) string {
-	r := strings.NewReplacer("&", "%26", "+", "%2B", " ", "%20", "#", "%23", "?", "%3F", "=", "%3D")
-	return r.Replace(s)
-}
+func escapeQuery(s string) string { return url.QueryEscape(s) }

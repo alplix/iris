@@ -2,9 +2,9 @@ package detect
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func getCPUInfo() (string, string) {
@@ -20,8 +20,8 @@ func getCPUInfo() (string, string) {
 }
 
 func getCPUInfoWin() (string, string) {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
-		"Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer | ConvertTo-Json").Output()
+	out, err := run(30*time.Second, "powershell", "-NoProfile", "-Command",
+		"Get-CimInstance Win32_Processor | Select-Object Name,Manufacturer | ConvertTo-Json")
 	if err != nil {
 		return "", ""
 	}
@@ -64,7 +64,7 @@ func getCPUInfoLinux() (string, string) {
 }
 
 func getCPUInfoDarwin() (string, string) {
-	out, err := exec.Command("sysctl", "-n", "machdep.cpu.brand_string").Output()
+	out, err := run(10*time.Second, "sysctl", "-n", "machdep.cpu.brand_string")
 	if err != nil {
 		return "", ""
 	}

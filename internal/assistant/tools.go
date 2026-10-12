@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/alplix/iris/internal/app"
+	"github.com/alplix/iris/internal/prefs"
 )
 
 // action is what the model must emit, verbatim as the ONLY content of its
@@ -46,6 +47,11 @@ var (
 	clientOps   = map[string]bool{"setRunMode": true, "setNetworkMode": true, "benchmarks": true}
 	prefKeyRe   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 	allowedTool = map[string]bool{"project_op": true, "client_op": true, "client_op_all": true, "set_prefs": true}
+	// protectedPrefs can never be changed from chat: turning on real
+	// applications makes the host run downloaded, unsandboxed programs, and a
+	// project's own message text reaches the model, so that switch stays with
+	// the person in Settings.
+	protectedPrefs = map[string]bool{prefs.RealAppsKey: true}
 )
 
 // plan is a concrete, ready-to-run action: everything in it has already been
@@ -121,15 +127,34 @@ func resolve(mgr *app.Manager, a action) (*plan, *Clarify) {
 		if !ok {
 			return nil, &Clarify{Kind: "host_not_found", Name: a.Host}
 		}
-		fields := make([][2]string, 0, len(a.Fields))
-		for k, v := range a.Fields {
-			if !prefKeyRe.MatchString(k) {
+		for k := range a.Fields {
+			if !prefKeyRe.MatchString(k) || protectedPrefs[k] {
 				return nil, &Clarify{Kind: "invalid"}
 			}
-			fields = append(fields, [2]string{k, v})
 		}
-		sort.Slice(fields, func(i, j int) bool { return fields[i][0] < fields[j][0] })
-		return &plan{Run: func() error { return mgr.PrefsSet(h.ID, fields) }}, nil
+		changes := a.Fields
+		return &plan{Run: func() error {
+			// Saving preferences replaces the whole set on the server, so the
+			// requested changes are merged into what is there now; sending
+			// only the changed keys would silently wipe every other override.
+			cur, err := mgr.PrefsGet(h.ID)
+			if err != nil {
+				return err
+			}
+			merged := make(map[string]string, len(cur)+len(changes))
+			for k, v := range cur {
+				merged[k] = v
+			}
+			for k, v := range changes {
+				merged[k] = v
+			}
+			fields := make([][2]string, 0, len(merged))
+			for k, v := range merged {
+				fields = append(fields, [2]string{k, v})
+			}
+			sort.Slice(fields, func(i, j int) bool { return fields[i][0] < fields[j][0] })
+			return mgr.PrefsSet(h.ID, fields)
+		}}, nil
 	}
 	return nil, &Clarify{Kind: "unsupported_tool", Name: a.Tool}
 }

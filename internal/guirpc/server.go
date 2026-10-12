@@ -8,7 +8,9 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"regexp"
 	"strconv"
@@ -119,8 +121,12 @@ func (s *Server) handleClient(conn net.Conn) {
 		conn.Close()
 	}()
 
-	conn.SetDeadline(time.Now().Add(5 * time.Minute))
-	r := bufio.NewReaderSize(conn, 64*1024)
+	// A peer that has not proven it knows the password gets little room: a
+	// short time to do so and a small request size, so an open port cannot be
+	// used to tie up memory or connections without credentials.
+	conn.SetDeadline(time.Now().Add(authTimeout))
+	capped := &capReader{r: conn, limit: maxRequestUnauthed}
+	r := bufio.NewReaderSize(capped, 64*1024)
 	sess := &session{}
 
 	for {
@@ -135,8 +141,42 @@ func (s *Server) handleClient(conn net.Conn) {
 		conn.SetWriteDeadline(time.Now().Add(12 * time.Second))
 		conn.Write([]byte(reply))
 		conn.Write([]byte{ETX})
-		conn.SetDeadline(time.Now().Add(5 * time.Minute))
+		capped.n = 0
+		if sess.authed {
+			capped.limit = maxRequestAuthed
+			conn.SetDeadline(time.Now().Add(5 * time.Minute))
+		} else {
+			conn.SetDeadline(time.Now().Add(authTimeout))
+		}
 	}
+}
+
+const (
+	authTimeout        = 30 * time.Second
+	maxRequestUnauthed = 256 * 1024
+	maxRequestAuthed   = 8 << 20
+)
+
+var errRequestTooLarge = errors.New("request too large")
+
+// capReader fails once more than limit bytes have been read since n was last
+// reset, which bounds what one request can make the server buffer.
+type capReader struct {
+	r     io.Reader
+	n     int
+	limit int
+}
+
+func (c *capReader) Read(p []byte) (int, error) {
+	if c.n >= c.limit {
+		return 0, errRequestTooLarge
+	}
+	if rem := c.limit - c.n; len(p) > rem {
+		p = p[:rem]
+	}
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
 }
 
 func readRequest(r *bufio.Reader) (string, error) {

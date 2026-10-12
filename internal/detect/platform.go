@@ -2,10 +2,10 @@ package detect
 
 import (
 	"os"
-	"os/exec"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func getRAM() float64 {
@@ -21,8 +21,8 @@ func getRAM() float64 {
 }
 
 func getRAMWin() float64 {
-	out, err := exec.Command("powershell", "-NoProfile", "-Command",
-		"(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory").Output()
+	out, err := run(30*time.Second, "powershell", "-NoProfile", "-Command",
+		"(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory")
 	if err != nil {
 		return 0
 	}
@@ -39,7 +39,7 @@ func getRAMLinux() float64 {
 }
 
 func getRAMDarwin() float64 {
-	out, err := exec.Command("sysctl", "-n", "hw.memsize").Output()
+	out, err := run(10*time.Second, "sysctl", "-n", "hw.memsize")
 	if err != nil {
 		return 0
 	}
@@ -59,7 +59,7 @@ func getDiskUsage() (float64, float64) {
 
 func getDiskWin() (float64, float64) {
 	ps := "$d=Get-PSDrive C; \"$($d.Used+$d.Free)\"; \"$($d.Free)\""
-	out, err := exec.Command("powershell", "-NoProfile", "-Command", ps).Output()
+	out, err := run(30*time.Second, "powershell", "-NoProfile", "-Command", ps)
 	if err != nil {
 		return 0, 0
 	}

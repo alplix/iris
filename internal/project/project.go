@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/alplix/iris/internal/fsutil"
 )
 
 type Account struct {
@@ -48,11 +50,11 @@ func (pd *ProjectDir) SaveAccount(acct *Account) error {
 	buf.WriteString(xml.Header)
 	buf.Write(data)
 	buf.WriteString("\n")
-	return os.WriteFile(filepath.Join(pd.base, "account.xml"), []byte(buf.String()), 0o644)
+	return fsutil.WriteFile(filepath.Join(pd.base, "account.xml"), []byte(buf.String()), 0o644, false)
 }
 
 func (pd *ProjectDir) WriteConfig(content string) error {
-	return os.WriteFile(filepath.Join(pd.base, "cc_config.xml"), []byte(content), 0o644)
+	return fsutil.WriteFile(filepath.Join(pd.base, "cc_config.xml"), []byte(content), 0o644, false)
 }
 
 func (pd *ProjectDir) Path() string {
